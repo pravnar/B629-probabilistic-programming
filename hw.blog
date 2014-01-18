@@ -1,0 +1,81 @@
+/*
+   People in this group:
+   - Tim Zakian
+   - Praveen Narayanan
+   - Yuhang Zhou
+ */
+
+/*
+  * (1) How do you know the port was successful?
+        - It seems to give the same results as the Church program, both the "standard"
+          values as well as when we changed the values of the weights for the coin.
+        - We also had slightly different port to BLOG that we thought should have the
+	  behavior, but it wasn't so. Here is its behavior:
+	  - When the weights for makeCoin were changed, the results changed 
+            in the right direction.
+          - The sum of all probabilities is 1.
+          - The results make reasonable sense, for example, lower probability that
+            the coin is fair when the observed data is all heads.
+  * (2) How are Church and BLOG different?
+        - LISP vs Java
+        - Functional vs imperative
+        - Functions like "query" seem to have different semantics. For instance, 
+          we are not sure how to implement "mh" queries in BLOG, we can only do
+          the generic query as of now.
+  * (3) Are there ideas that Church can express that BLOG cannot, or vice versa?
+        Probably not, however certain ideas are much easier (at least for people in Functional
+        PL) to express in Church as opposed to BLOG.
+  * (4) Are there programs that Church can express that BLOG cannot, or vice versa?
+        We don't know, an example of this might be our inability to write mh-query in
+        BLOG. It appears that BLOG cannot query other queries, whereas Church should be able
+	support higher order queries that are declared as functions.
+  * (5) Same as above, for now.
+*/
+
+distinct Boolean arr[7];
+
+random Boolean fair ~ BooleanDistrib(0.5);
+
+random Boolean head(Boolean h)
+  if fair then ~ BooleanDistrib(0.5)
+t@github.iu.edu:pravnar/B629-prob-prog.git    else ~ BooleanDistrib(0.95);
+
+obs head(arr[0]) = true;
+obs head(arr[1]) = true;
+obs head(arr[2]) = true;
+obs head(arr[3]) = true;
+obs head(arr[4]) = true;
+obs head(arr[5]) = true;
+obs head(arr[6]) = true;
+
+query fair;
+
+/*
+
+random Boolean fairCoinHuh ~ BooleanDistrib(0.5);
+
+random Boolean flip(Real weight) ~ BooleanDistrib(weight);
+
+random Boolean makeCoin(Real weight) {
+  if (flip(weight)) 
+    then = true 
+  else = false
+};
+
+random Boolean flipCoin(Boolean f) {
+  if (f) 
+    then = makeCoin(0.5) 
+  else = makeCoin(0.95)
+};
+
+random Boolean sampleCoin(Boolean f) {
+  if (flipCoin(f) & flipCoin(f) &
+      flipCoin(f) & flipCoin(f) &  
+      flipCoin(f) & flipCoin(f) &
+      flipCoin(f) & flipCoin(f))
+    then = true 
+  else = false
+};
+
+query sampleCoin(fairCoinHuh); 
+*/
