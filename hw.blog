@@ -50,7 +50,11 @@ obs head(arr[6]) = true;
 
 query fair;
 
+
 /*
+
+// Another version/port of the fair-coin program
+// Doesn't "quite" give the same answers. TODO: Figure out why.
 
 random Boolean fairCoinHuh ~ BooleanDistrib(0.5);
 
