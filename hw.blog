@@ -38,7 +38,7 @@ random Boolean fair ~ BooleanDistrib(0.5);
 
 random Boolean head(Boolean h)
   if fair then ~ BooleanDistrib(0.5)
-t@github.iu.edu:pravnar/B629-prob-prog.git    else ~ BooleanDistrib(0.95);
+  else ~ BooleanDistrib(0.95);
 
 obs head(arr[0]) = true;
 obs head(arr[1]) = true;
