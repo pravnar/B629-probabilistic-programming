@@ -3,7 +3,7 @@ import math
 
 
 N = 5000
-x_0 = random.gauss(0,100)
+x_0 = random.gauss(10,100)
 i = 1
 
 samples = []
