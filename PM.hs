@@ -1,4 +1,4 @@
--- | Definitions from Stochastic Lambda Calculus and Monads of Probability Distributions
+-- | Definitions from "Stochastic Lambda Calculus and Monads of Probability Distributions"
 -- http://www.cs.tufts.edu/~nr/pubs/pmonad.pdf
 
 {-# LANGUAGE RankNTypes #-}
@@ -28,7 +28,7 @@ class ProbabilityMonad m => SamplingMonad m where
   sample :: RandomGen g => m a -> g -> (a, g)
 
 ------------------------- Instances ------------------------------------
-instance Monad Support where
+]instance Monad Support where
   return x = Support [x]
   (Support l) >>= k = Support (concat [s | x <- l, let Support s = k x])
 
