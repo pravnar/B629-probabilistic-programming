@@ -1,7 +1,6 @@
 import random
 import math
 
-
 N = 5000
 x_0 = random.gauss(10,100)
 i = 1
