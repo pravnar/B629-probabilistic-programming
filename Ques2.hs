@@ -8,3 +8,4 @@ problem = do
     f x
   y <- return cautious
   g y
+
