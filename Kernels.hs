@@ -2,21 +2,21 @@
 
 module Kernels where
 
-data Distribution a
+import Data.Random.Distribution as D
 
 class Kernel k where
     sample :: k a -> a
-    -- proposal :: k -> a -> Distribution a
-    -- target :: k -> Distribution a
 
-data MetropolisHastings a = MH (Distribution a) (a -> Distribution a)
+data MetropolisHastings a where
+    MH :: (Distribution p a, Distribution q a) => p a -> (a -> q a) -> MetropolisHastings a
 
 instance Kernel MetropolisHastings where
     sample _ = undefined
 
 data CoolingSchedule
 
-data SimulatedAnnealing a = SA (Distribution a) (a -> Distribution a) CoolingSchedule
+data SimulatedAnnealing a where
+    SA :: (Distribution p a, Distribution q a) => p a -> (a -> q a) -> CoolingSchedule -> SimulatedAnnealing a
 
 instance Kernel SimulatedAnnealing where
     sample _ = undefined
