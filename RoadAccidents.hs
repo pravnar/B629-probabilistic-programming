@@ -23,4 +23,5 @@ crash_prob = expectation
              (\b -> if b then 1.0 else 0.0) 
              (crash aggressive_driver aggressive_driver)
 
+main :: IO ()
 main = print crash_prob
