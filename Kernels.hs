@@ -2,49 +2,63 @@
 
 module Kernels where
 
-import Statistics.Distribution
-import Statistics.Distribution.Uniform
-import Statistics.Quantile
+import Distributions
 import Control.Monad.Primitive
-import System.Random.MWC
-import Data.Number.Erf
-import Data.Ratio
+import qualified System.Random.MWC as MWC
 
 class Kernel k where
-    sample :: PrimMonad m => k -> Double -> Gen (PrimState m) -> m Double
-    run :: PrimMonad m => k -> Double -> Int -> Gen (PrimState m) -> m Double
+    step :: PrimMonad m => k -> Double -> MWC.Gen (PrimState m) -> m Double
+    nsteps :: PrimMonad m => k -> Double -> Int -> MWC.Gen (PrimState m) -> m Double
+    walk :: PrimMonad m => k -> [Double] -> Int -> Int -> MWC.Gen (PrimState m) -> m [Double]
 
 data MetropolisHastings where
-    MH :: (ContDistr t, ContDistr p, ContGen p) => t -> (Double -> p) -> MetropolisHastings
+    MH :: (Distribution t, Sampleable p) => t -> (Double -> p) -> MetropolisHastings
 
 instance Kernel MetropolisHastings where
-    sample (MH t c_p) xi g = do
-      u <- genContVar (uniformDistr 0 1) g
-      xstar <- genContVar (c_p xi) g
+    step (MH t c_p) xi g = do
+      u <- sampleFrom (uniform 0 1) g
+      xstar <- sampleFrom (c_p xi) g
       let accept = min 1 (numer / denom)
           numer = (density t xstar) * (density (c_p xstar) xi)
           denom = (density t xi) * (density (c_p xi) xstar)
       if u < accept then return xstar else return xi
+    
+    nsteps _ x0 0 _ = return x0
+    nsteps mh x0 n g = do
+      x <- step mh x0 g
+      nsteps mh x (n-1) g
 
-    run _ x0 0 _ = return x0
-    run mh x0 n g = do
-      x <- sample mh x0 g
-      run mh x (n-1) g
+    walk _ xl 0 _ _ = return xl
+    walk mh (x:xs) n m g = do
+      xm <- nsteps mh x m g
+      walk mh (xm:x:xs) (n-1) m g
 
--- density: 0.3*exp(-0.2*x^2) + 0.7*exp(-0.2(x-10)^2)
-data ExampleTargetDistr = ED
+-- Test
+
+data ExampleTarget = ET
+
+-- Bimodal distribution from section 3.1 of
+-- "An Introduction to MCMC for Machine Learning" by C. Andrieu et al.
+instance Distribution ExampleTarget where
+    density ET x = 0.3 * exp (-0.2*x*x) 
+                  + 0.7 * (exp $ -0.2*((x-10)**2))
+
+gaussian_proposal :: Double -> Normal
+gaussian_proposal x = normal x 100
+
+example_mh_kernel :: MetropolisHastings
+example_mh_kernel = MH ET gaussian_proposal
+
+test_run :: IO [Double]
+test_run = do
+  g <- MWC.create
+  walk example_mh_kernel [0] 1000 1000 g
 
 -- cumulative: -1.38716 erf(4.47214-0.447214 x)+0.594499 erf(0.447214 x)
-instance Distribution ExampleTargetDistr where
-    cumulative _ x = -1.38716 * (erf (4.47214 - 0.447214*x))
-                     + 0.594499 * (erf 0.447214*x)
-                     + 0.594499 + 1.38716
-
-instance ContDistr ExampleTargetDistr where
-    density _ x = 0.3 * exp (-0.2*x*x) 
-                  + 0.7 * (exp $ -0.2*((x-10)**2))
-    
-    quantile d p = undefined
+-- instance Distribution ExampleTargetDistr where
+--     cumulative _ x = -1.38716 * (erf (4.47214 - 0.447214*x))
+--                      + 0.594499 * (erf 0.447214*x)
+--                      + 0.594499 + 1.38716
 
 -- data CoolingSchedule
 
