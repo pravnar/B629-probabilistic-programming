@@ -33,27 +33,6 @@ instance Kernel MetropolisHastings where
       xm <- nsteps mh x m g
       walk mh (xm:x:xs) (n-1) m g
 
--- Test
-
-data ExampleTarget = ET
-
--- Bimodal distribution from section 3.1 of
--- "An Introduction to MCMC for Machine Learning" by C. Andrieu et al.
-instance Distribution ExampleTarget where
-    density ET x = 0.3 * exp (-0.2*x*x) 
-                  + 0.7 * (exp $ -0.2*((x-10)**2))
-
-gaussian_proposal :: Double -> Normal
-gaussian_proposal x = normal x 100
-
-example_mh_kernel :: MetropolisHastings
-example_mh_kernel = MH ET gaussian_proposal
-
-test_run :: IO [Double]
-test_run = do
-  g <- MWC.create
-  walk example_mh_kernel [0] 1000 1000 g
-
 -- cumulative: -1.38716 erf(4.47214-0.447214 x)+0.594499 erf(0.447214 x)
 -- instance Distribution ExampleTargetDistr where
 --     cumulative _ x = -1.38716 * (erf (4.47214 - 0.447214*x))
