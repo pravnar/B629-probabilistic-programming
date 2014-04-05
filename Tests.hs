@@ -1,34 +1,53 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
+
 module Main where
 
 import Distributions
 import Kernels
 import qualified System.Random.MWC as MWC
 
-data ExampleTarget = ET
+data ExampleTarget a = ET
 
 -- Bimodal distribution from section 3.1 of
 -- "An Introduction to MCMC for Machine Learning" by C. Andrieu et al.
-instance Distribution ExampleTarget where
+instance Distribution ExampleTarget Double where
     density ET x = 0.3 * exp (-0.2*x*x) 
                   + 0.7 * (exp $ -0.2*((x-10)**2))
 
-gaussian_proposal :: Double -> Normal
+gaussian_proposal :: Double -> Normal Double
 gaussian_proposal x = normal x 100
 
-example_mh_kernel :: MetropolisHastings
-example_mh_kernel = MH ET gaussian_proposal
+example_mh_kernel :: MetropolisHastings Double
+example_mh_kernel = metropolis_hastings ET gaussian_proposal
 
-test_run :: IO [Double]
-test_run = do
-  g <- MWC.create
+mh_test_run :: IO [Double]
+mh_test_run = do
+  g <- MWC.createSystemRandom
   walk example_mh_kernel [0] 100 100 g
+
+example_sa_kernel :: SimulatedAnnealing Double
+example_sa_kernel = simulated_annealing ET gaussian_proposal
+
+sa_test_run :: IO [Double]
+sa_test_run = do
+  g <- MWC.createSystemRandom
+  let cool_sch = \t -> (t / 2 :: Temp)
+      first (a,_,_) = a
+      init_temp = 1 :: Temp
+  ls <- walk example_sa_kernel [(0, init_temp, cool_sch)] 100 100 g
+  return $ map first ls
+
+viz_json :: [Double] -> String
+viz_json samplelist = 
+    let l = length samplelist
+    in "{\"current_sample\": " ++ show l
+           ++ ", \"total_samples\": " ++ show l
+           ++ ", \"rvars\": {\"x\": " ++ show samplelist
+           ++ "}}"
 
 main :: IO ()
 main = do 
-  samplelist <- test_run
-  let l = length samplelist
-  putStrLn $ "{\"current_sample\": " ++ show l
-               ++ ", \"total_samples\": " ++ show l
-               ++ ", \"rvars\": {\"x\": " ++ show samplelist
-               ++ "}}"
-  -- print samplelist
+  mhlist <- mh_test_run
+  putStrLn $ viz_json mhlist
+  salist <- sa_test_run
+  putStrLn $ viz_json salist

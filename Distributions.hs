@@ -51,5 +51,5 @@ instance Distribution Normal Double where
               n = negate (xm * xm)
               d =  2 * (sigma * sigma)
 
--- instance Sampleable Normal where
---     sampleFrom (N mu sigma) g = MWC.D.normal mu sigma g
+instance Sampleable Normal Double where
+    sampleFrom (N mu sigma) g = MWC.D.normal mu sigma g
