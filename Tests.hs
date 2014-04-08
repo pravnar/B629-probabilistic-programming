@@ -17,7 +17,7 @@ instance Distribution ExampleTarget Double where
 gaussian_proposal :: Double -> Normal Double
 gaussian_proposal x = normal x 100
 
-example_mh_kernel :: MetropolisHastings Double
+example_mh_kernel :: MetropolisHastings ExampleTarget Normal Double
 example_mh_kernel = metropolis_hastings ET gaussian_proposal
 
 mh_test_run :: IO [Double]
@@ -25,7 +25,7 @@ mh_test_run = do
   g <- MWC.createSystemRandom
   walk example_mh_kernel [0] 100 100 g
 
-example_sa_kernel :: SimulatedAnnealing Double
+example_sa_kernel :: SimulatedAnnealing ExampleTarget Normal Double
 example_sa_kernel = simulated_annealing ET gaussian_proposal
 
 sa_test_run :: IO [Double]

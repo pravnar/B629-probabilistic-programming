@@ -31,15 +31,16 @@ class Kernel (k :: *) (x :: *) where
       xm <- nsteps k x m g
       walk k (xm:x:xs) (n-1) m g
 
-data MetropolisHastings a where
-    MH :: (Distribution t a, Sampleable p a) => 
-          t a -> (a -> p a) -> MetropolisHastings a
+-- data MetropolisHastings a where
+--     MH :: (Distribution t a, Sampleable p a) => 
+--           t a -> (a -> p a) -> MetropolisHastings a
 
-metropolis_hastings :: (Distribution t a, Sampleable p a) => 
-                       t a -> (a -> p a) -> MetropolisHastings a
+data MetropolisHastings t p a = MH (t a) (a -> p a) 
+
+metropolis_hastings :: t a -> (a -> p a) -> MetropolisHastings t p a
 metropolis_hastings = MH
 
-instance Kernel (MetropolisHastings Double) Double where
+instance (Distribution t a, Sampleable p a) => Kernel (MetropolisHastings t p a) a where
     step (MH t c_p) xi g = do
       u <- sampleFrom (uniform 0 1) g
       xstar <- sampleFrom (c_p xi) g
@@ -51,15 +52,16 @@ instance Kernel (MetropolisHastings Double) Double where
 type Temp = Double
 type CoolingSchedule = Temp -> Temp
 
-data SimulatedAnnealing a where
-    SA :: (Distribution t a, Sampleable p a) => 
-          t a -> (a -> p a) -> SimulatedAnnealing a
+-- data SimulatedAnnealing a where
+--     SA :: (Distribution t a, Sampleable p a) => 
+--           t a -> (a -> p a) -> SimulatedAnnealing a
 
-simulated_annealing :: (Distribution t a, Sampleable p a) => 
-                       t a -> (a -> p a) -> SimulatedAnnealing a
+data SimulatedAnnealing t p a = SA (t a) (a -> p a) 
+
+simulated_annealing :: t a -> (a -> p a) -> SimulatedAnnealing t p a
 simulated_annealing = SA
 
-instance Kernel (SimulatedAnnealing Double) (Double, Temp, CoolingSchedule) where
+instance (Distribution t a, Sampleable p a) => Kernel (SimulatedAnnealing t p a) (a, Temp, CoolingSchedule) where
     step (SA t c_p) (xi,temp,cool) g = do
       u <- sampleFrom (uniform 0 1) g
       xstar <- sampleFrom (c_p xi) g
