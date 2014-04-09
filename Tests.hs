@@ -31,7 +31,7 @@ example_sa_kernel = simulated_annealing ET gaussian_proposal
 sa_test_run :: IO [Double]
 sa_test_run = do
   g <- MWC.createSystemRandom
-  let cool_sch = \t -> (t / 2 :: Temp)
+  let cool_sch = (*) (1 - 1e-5) :: Temp -> Temp
       first (a,_,_) = a
       init_temp = 1 :: Temp
   ls <- walk example_sa_kernel [(0, init_temp, cool_sch)] 100 100 g
