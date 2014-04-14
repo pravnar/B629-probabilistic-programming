@@ -5,6 +5,7 @@ module Main where
 import Distributions
 import Kernels
 import qualified System.Random.MWC as MWC
+import Control.Monad
 
 data ExampleTarget a = ET
 
@@ -23,7 +24,9 @@ example_mh_kernel = metropolis_hastings ET gaussian_proposal
 mh_test_run :: IO [Double]
 mh_test_run = do
   g <- MWC.createSystemRandom
-  walk example_mh_kernel [0] 100 100 g
+  l <- walk example_mh_kernel [0] 100 100 g
+  putStrLn $ viz_json l
+  return l
 
 example_sa_kernel :: SimulatedAnnealing ExampleTarget Normal Double
 example_sa_kernel = simulated_annealing ET gaussian_proposal
@@ -31,11 +34,17 @@ example_sa_kernel = simulated_annealing ET gaussian_proposal
 sa_test_run :: IO [Double]
 sa_test_run = do
   g <- MWC.createSystemRandom
-  let cool_sch = (*) (1 - 1e-5) :: Temp -> Temp
+  let cool_sch t = t / 1.125 :: Temp 
+      -- cool_sch = (*) (1 - 1e-5) :: Temp -> Temp
       first (a,_,_) = a
       init_temp = 1 :: Temp
-  ls <- walk example_sa_kernel [(0, init_temp, cool_sch)] 100 100 g
-  return $ map first ls
+  ls <- walk example_sa_kernel [(0, init_temp, cool_sch)] 1000 10 g
+  let l = my_filter $ map first ls
+  putStrLn $ viz_json l
+  return l
+
+my_filter :: [Double] -> [Double]
+my_filter = filter (((>) 20) . abs)
 
 viz_json :: [Double] -> String
 viz_json samplelist = 
@@ -47,7 +56,7 @@ viz_json samplelist =
 
 main :: IO ()
 main = do 
-  mhlist <- mh_test_run
-  putStrLn $ viz_json mhlist
-  salist <- sa_test_run
-  putStrLn $ viz_json salist
+  -- replicateM_ 100 mh_test_run
+  replicateM_ 100 sa_test_run
+  -- salist <- sa_test_run
+  -- putStrLn $ viz_json salist
