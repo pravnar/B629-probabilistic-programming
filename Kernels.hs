@@ -120,5 +120,5 @@ mixture = Mix
 
 instance (Kernel k x, Kernel l x) => Kernel (Mixture k l) x where
     step (Mix nu k l) x g = do
-      u <- sampleFrom (uniform 1 0) g
+      u <- sampleFrom (uniform 0 1) g
       if u < nu then step k x g else step l x g
