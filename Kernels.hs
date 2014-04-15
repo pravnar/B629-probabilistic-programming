@@ -122,3 +122,6 @@ instance (Kernel k x, Kernel l x) => Kernel (Mixture k l) x where
     step (Mix nu k l) x g = do
       u <- sampleFrom (uniform 0 1) g
       if u < nu then step k x g else step l x g
+
+-- mixture_target :: (Distribution t a) => Mixture k l -> t a
+-- mixture_target (Mix _ (MH t _) (MH u _)) = if t == u then t else error ""
