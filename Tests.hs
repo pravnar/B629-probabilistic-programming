@@ -47,6 +47,6 @@ sa_test_run = do
 
 main :: IO ()
 main = do
-  -- mh_test_run
-  sa_test_run
+  mh_test_run
+  -- sa_test_run
   return ()

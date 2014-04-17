@@ -1,16 +1,15 @@
 {-# LANGUAGE EmptyDataDecls, GADTs, MultiParamTypeClasses, KindSignatures, FlexibleInstances #-}
 
 module Kernels ( Kernel (..)
-               , Chain
-               , St
                , Action
-               , print_latest_samples
+               , print_batch
+               , viz_batch
                , MetropolisHastings
                , metropolis_hastings
-               , print_latest_mh_samples
+               , viz_mh
                , SimulatedAnnealing
                , simulated_annealing
-               , print_latest_sa_samples
+               , viz_sa
                , Mixture
                , mixture
                , Temp
@@ -21,32 +20,20 @@ module Kernels ( Kernel (..)
 import Distributions
 import Control.Monad.Primitive
 import qualified System.Random.MWC as MWC
-import Control.Monad
 
 type Rand m = MWC.Gen (PrimState m)
-type JumpSize = Int
-type NumSamples = Int
-type Chain = (NumSamples, JumpSize)
-type St x = ([x], Either Int Int)
-type Action m x = St x -> m (St x)
+type N = Int
+type Action x m a = x -> a -> m a
 
 class Kernel (k :: *) (x :: *) where
     step :: PrimMonad m => k -> x -> Rand m -> m x
-            
-    nsteps :: PrimMonad m => k -> x -> JumpSize -> Rand m -> m x
-    nsteps _ x0 0 _ = return x0
-    nsteps k x0 n g = do
-      x <- step k x0 g
-      nsteps k x (n-1) g
     
-    walk :: PrimMonad m => k -> St x -> Chain -> Action m x -> Rand m -> m (St x)
-    walk k (xl@(x:_), Left i) (n,m) f rng
-        | n == 1 = f (xl, Right i)
-        | n > 1 = do xm <- nsteps k x m rng
-                     st <- f ((xm:xl), Left (i+1))
-                     walk k st ((n-1), m) f rng
-        | otherwise = error "Kernel:walk called with #samples < 1"
-    walk _ st@(_, Right _) _ _ _ = return st
+    walk :: PrimMonad m => k -> x -> N -> Rand m -> a -> Action x m a -> m a
+    walk _ x 1 _ st act = act x st
+    walk k x n r st act = do 
+      x' <- step k x r
+      st' <- act x' st
+      walk k x' (n-1) r st' act
 
 -- Visualization --
 
@@ -56,13 +43,26 @@ viz_json samplelist current total = "{\"current_sample\": " ++ show current
                                     ++ ", \"rvars\": {\"x\": " ++ show samplelist
                                     ++ "}}"
 
-print_latest_samples :: ([a] -> [Double]) -> Int -> Int -> Action IO a
-print_latest_samples f n total st@(xl, Left i) = do
-  when (i `mod` n == 0) $ putStrLn (viz_json (take n $ f xl) i total)
-  return st
-print_latest_samples f n total st@(xl, Right i) = do
-  putStrLn (viz_json (take (i `mod` n) $ f xl) total total)
-  return st
+print_batch :: Int -> (x -> Double) -> Action x IO ([x], Int)
+print_batch n f x (l, i) 
+    | i == n = print (map f l) >> return ([x], 1)
+    | otherwise = return (x:l, i+1)
+
+type VizAction x m = Action x m ([x], Int, Int)
+
+viz_batch :: (x -> Double) -> N -> Int -> VizAction x IO
+viz_batch f total n x (l, i, current) 
+    | i == n = do putStrLn $ viz_json (map f l) total (current*n)
+                  return ([x], 1, current+1)
+    | otherwise = return (x:l, i+1, current)
+
+-- print_latest_samples :: ([a] -> [Double]) -> Int -> Int -> Action IO a
+-- print_latest_samples f n total st@(xl, Left i) = do
+--   when (i `mod` n == 0) $ putStrLn (viz_json (take n $ f xl) i total)
+--   return st
+-- print_latest_samples f n total st@(xl, Right i) = do
+--   putStrLn (viz_json (take (i `mod` n) $ f xl) total total)
+--   return st
 
 -- Metropolis Hastings --
 
@@ -80,8 +80,8 @@ instance (Distribution t a, Sampleable p a) => Kernel (MetropolisHastings t p a)
           denom = (density t xi) * (density (c_p xi) xstar)
       if u < accept then return xstar else return xi
 
-print_latest_mh_samples :: Int -> Int -> Action IO Double
-print_latest_mh_samples = print_latest_samples id
+viz_mh :: N -> Int -> VizAction Double IO
+viz_mh = viz_batch id
 
 -- Simulated Annealing --
 
@@ -106,8 +106,8 @@ instance (Distribution t a, Sampleable p a) => Kernel (SimulatedAnnealing t p a)
 first :: (a, b, c) -> a
 first (a,_,_) = a
 
-print_latest_sa_samples :: Int -> Int -> Action IO (Double, Temp, CoolingSchedule)
-print_latest_sa_samples = print_latest_samples (map first)
+viz_sa :: N -> Int -> VizAction (Double, Temp, CoolingSchedule) IO
+viz_sa = viz_batch first
 
 -- Kernel Mixtures --
 
