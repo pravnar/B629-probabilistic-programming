@@ -5,6 +5,7 @@ module Main where
 import Distributions
 import Kernels
 import qualified System.Random.MWC as MWC
+import Control.Monad
 
 data ExampleTarget a = ET
 
@@ -20,27 +21,27 @@ gaussian_proposal x = normal x 100
 example_mh_kernel :: MetropolisHastings ExampleTarget Normal Double
 example_mh_kernel = metropolis_hastings ET gaussian_proposal
 
-chain1 :: Chain
-chain1 = (10000, 100)
-
-mh_test_run :: IO (St Double)
+mh_test_run :: IO ()
 mh_test_run = do
   g <- MWC.createSystemRandom
-  let act = print_latest_mh_samples 50 (fst chain1)
-  walk example_mh_kernel ([0], Left 1) chain1 act g
-
+  let n = 100000
+      act = viz_mh n 500
+      a0 = ([], 0, 1)
+      print_remaining (a,b,c) = unless (null a) $ putStrLn $ viz_json a (b*c) n
+  walk example_mh_kernel 0 n g a0 act >>= print_remaining
+  
 example_sa_kernel :: SimulatedAnnealing ExampleTarget Normal Double
 example_sa_kernel = simulated_annealing ET gaussian_proposal
 
-sa_test_run :: IO (St (Double, Temp, CoolingSchedule))
-sa_test_run = do
-  g <- MWC.createSystemRandom
-  let -- cool_sch t = t / 1.125 :: Temp 
-      cool_sch = (*) (1 - 1e-3) :: Temp -> Temp
-      init_temp = 1 :: Temp
-      initial = [(0, init_temp, cool_sch)]
-      act = print_latest_sa_samples 50 (fst chain1)
-  walk example_sa_kernel (initial, Left 1) chain1 act g
+-- sa_test_run :: IO (St (Double, Temp, CoolingSchedule))
+-- sa_test_run = do
+--   g <- MWC.createSystemRandom
+--   let -- cool_sch t = t / 1.125 :: Temp 
+--       cool_sch = (*) (1 - 1e-3) :: Temp -> Temp
+--       init_temp = 1 :: Temp
+--       initial = [(0, init_temp, cool_sch)]
+--       act = print_latest_sa_samples 50 (fst chain1)
+--   walk example_sa_kernel (initial, Left 1) chain1 act g
 
 -- my_filter :: [Double] -> [Double]
 -- my_filter = filter (((>) 20) . abs)

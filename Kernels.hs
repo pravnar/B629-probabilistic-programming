@@ -2,6 +2,7 @@
 
 module Kernels ( Kernel (..)
                , Action
+               , viz_json
                , print_batch
                , viz_batch
                , MetropolisHastings
@@ -29,11 +30,20 @@ class Kernel (k :: *) (x :: *) where
     step :: PrimMonad m => k -> x -> Rand m -> m x
     
     walk :: PrimMonad m => k -> x -> N -> Rand m -> a -> Action x m a -> m a
-    walk _ x 1 _ st act = act x st
+    walk _ _ 0 _ st _ = return st
     walk k x n r st act = do 
       x' <- step k x r
       st' <- act x' st
       walk k x' (n-1) r st' act
+
+-- Actions
+
+id_action :: Monad m => Action x m a
+id_action _ = return
+
+skip :: Monad m => Int -> Action x m a -> Action x m a
+skip 0 act = act
+skip _ _ = id_action
 
 -- Visualization --
 
@@ -45,24 +55,16 @@ viz_json samplelist current total = "{\"current_sample\": " ++ show current
 
 print_batch :: Int -> (x -> Double) -> Action x IO ([x], Int)
 print_batch n f x (l, i) 
-    | i == n = print (map f l) >> return ([x], 1)
+    | i+1 == n = print (map f $ x:l) >> return ([], 0)
     | otherwise = return (x:l, i+1)
 
 type VizAction x m = Action x m ([x], Int, Int)
 
 viz_batch :: (x -> Double) -> N -> Int -> VizAction x IO
 viz_batch f total n x (l, i, current) 
-    | i == n = do putStrLn $ viz_json (map f l) total (current*n)
-                  return ([x], 1, current+1)
+    | i+1 == n = do putStrLn $ viz_json (map f $ x:l) (current*n) total
+                    return ([], 0, current+1)
     | otherwise = return (x:l, i+1, current)
-
--- print_latest_samples :: ([a] -> [Double]) -> Int -> Int -> Action IO a
--- print_latest_samples f n total st@(xl, Left i) = do
---   when (i `mod` n == 0) $ putStrLn (viz_json (take n $ f xl) i total)
---   return st
--- print_latest_samples f n total st@(xl, Right i) = do
---   putStrLn (viz_json (take (i `mod` n) $ f xl) total total)
---   return st
 
 -- Metropolis Hastings --
 
