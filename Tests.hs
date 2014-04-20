@@ -23,29 +23,32 @@ example_mh_kernel = metropolis_hastings ET gaussian_proposal
 mh_test_run :: IO ()
 mh_test_run = do
   g <- MWC.createSystemRandom
-  let (n,b) = (100000, 500)
-      act = viz_mh n b
-      a0 = ([], 0)
-  walk example_mh_kernel 0 n g a0 act >>= mh_print n . fst
+  let (total,bsize) = (1000000, 50)
+      act = mh_batch_viz total bsize
+      print_rem = mh_print total
+  skip_act <- skip 100 act
+  walk example_mh_kernel 0 total g skip_act >>= print_rem.fst.end_skip
   
 example_sa_kernel :: SimulatedAnnealing ExampleTarget Normal Double
 example_sa_kernel = simulated_annealing ET gaussian_proposal
 
--- sa_test_run :: IO (St (Double, Temp, CoolingSchedule))
--- sa_test_run = do
---   g <- MWC.createSystemRandom
---   let -- cool_sch t = t / 1.125 :: Temp 
---       cool_sch = (*) (1 - 1e-3) :: Temp -> Temp
---       init_temp = 1 :: Temp
---       initial = [(0, init_temp, cool_sch)]
---       act = print_latest_sa_samples 50 (fst chain1)
---   walk example_sa_kernel (initial, Left 1) chain1 act g
-
+sa_test_run :: IO ()
+sa_test_run = do
+  g <- MWC.createSystemRandom
+  let -- cool_sch t = t / 1.125 :: Temp 
+      cool_sch = (*) (1 - 1e-3) :: Temp -> Temp
+      x0 = (0, 1, cool_sch)
+      (total,bsize) = (1000000, 50)
+      act = sa_batch_viz total bsize
+      print_rem = sa_print total
+  skip_act <- skip 100 act
+  walk example_sa_kernel x0 total g skip_act >>= print_rem.fst.end_skip
+       
 -- my_filter :: [Double] -> [Double]
 -- my_filter = filter (((>) 20) . abs)
 
 main :: IO ()
 main = do
-  mh_test_run
-  -- sa_test_run
+  -- mh_test_run
+  sa_test_run
   return ()

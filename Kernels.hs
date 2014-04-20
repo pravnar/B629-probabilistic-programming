@@ -2,6 +2,8 @@
 
 module Kernels ( Kernel (..)
                , Action
+               , skip
+               , end_skip
                , MetropolisHastings
                , metropolis_hastings
                , Temp
@@ -15,9 +17,9 @@ module Kernels ( Kernel (..)
                , viz_json
                , batch_print
                , mh_print
-               , viz_mh
+               , mh_batch_viz
                , sa_print
-               , viz_sa
+               , sa_batch_viz
                ) where
 
 import Distributions
@@ -25,19 +27,39 @@ import Control.Monad.Primitive
 import qualified System.Random.MWC as MWC
 import Control.Monad
 
+-- Actions --
+
+type Action x m a = x -> a -> m a
+
+data Act x m a = Act (Action x m a) a
+
+execute :: Monad m => Act x m a -> x -> m (Act x m a)
+execute (Act action a) x = action x a >>= return . Act action
+
+skip :: Monad m => Int -> Act x m a -> m (Act x m (a,Int))
+skip n (Act action a) = do
+  let skip_action x (b,i) = if i == n 
+                            then do b' <- action x b
+                                    return (b',0)
+                            else return (b,i+1)
+  return (Act skip_action (a,0))
+
+end_skip :: (a,Int) -> a
+end_skip = fst
+
+-- Kernels --
+
 type Rand m = MWC.Gen (PrimState m)
 type N = Int
-type Action x m a = x -> a -> m a
 
 class Kernel (k :: *) (x :: *) where
     step :: PrimMonad m => k -> x -> Rand m -> m x
     
-    walk :: PrimMonad m => k -> x -> N -> Rand m -> a -> Action x m a -> m a
-    walk _ _ 0 _ st _ = return st
-    walk k x n r st act = do 
+    walk :: PrimMonad m => k -> x -> N -> Rand m -> Act x m a -> m a
+    walk _ _ 0 _ (Act _ a) = return a
+    walk k x n r act = do 
       x' <- step k x r
-      st' <- act x' st
-      walk k x' (n-1) r st' act
+      execute act x' >>= walk k x' (n-1) r
 
 -- Metropolis Hastings --
 
@@ -94,15 +116,6 @@ instance (Kernel k x, Kernel l x) => Kernel (Mixture k l) x where
 -- mixture_target :: (Distribution t a) => Mixture k l -> t a
 -- mixture_target (Mix _ (MH t _) (MH u _)) = if t == u then t else error ""
 
--- Actions --
-
-id_action :: Monad m => Action x m a
-id_action _ = return
-
-skip :: Monad m => Int -> Action x m a -> Action x m a
-skip 0 act = act
-skip _ _ = id_action
-
 -- Visualization --
 
 viz_json :: N -> [Double] -> String
@@ -110,31 +123,38 @@ viz_json total samplelist = "{\"total_samples\": " ++ show total
                             ++ ", \"rvars\": {\"x\": " ++ show samplelist
                             ++ "}}"
 
-type PrintAction x = Action x IO ([x], Int)
+type Print x = ([x], Int)
+type PrintAction x = Action x IO (Print x)
 
 batch_print :: ([x] -> IO ()) -> Int -> PrintAction x
 batch_print printf n x (l, i) 
     | i+1 == n = printf (x:l) >> return ([], 0)
     | otherwise = return (x:l, i+1)
 
-visualize :: (x -> Double) -> N -> [x] -> IO ()
-visualize f total = putStrLn . viz_json total . map f
+visualize :: ([x] -> [Double]) -> N -> [x] -> IO ()
+visualize f total = putStrLn . viz_json total . f
+
+pack :: PrintAction x -> Act x IO (Print x)
+pack = flip Act ([], 0)
 
 -- MH
 
 mh_print :: N -> [Double] -> IO ()
 mh_print total ls = unless (null ls) $ visualize id total ls
 
-viz_mh :: N -> Int -> PrintAction Double
-viz_mh = batch_print . mh_print
+mh_batch_viz :: N -> Int -> Act Double IO (Print Double)
+mh_batch_viz total = pack . batch_print (mh_print total)
 
 -- SA
 
 first :: (a, b, c) -> a
 first (a,_,_) = a
 
-sa_print :: N -> [(St_SA Double)] -> IO ()
-sa_print total ls = unless (null ls) $ visualize first total ls
+my_filter :: [Double] -> [Double]
+my_filter = filter (((>) 40) . abs)
 
-viz_sa :: N -> Int -> PrintAction (St_SA Double)
-viz_sa total = batch_print $ visualize first total
+sa_print :: N -> [(St_SA Double)] -> IO ()
+sa_print total ls = unless (null ls) $ visualize (my_filter . map first) total ls
+
+sa_batch_viz :: N -> Int -> Act (St_SA Double) IO (Print (St_SA Double))
+sa_batch_viz total = pack . batch_print (sa_print total)
