@@ -5,7 +5,6 @@ module Main where
 import Distributions
 import Kernels
 import qualified System.Random.MWC as MWC
-import Control.Monad
 
 data ExampleTarget a = ET
 
@@ -24,11 +23,10 @@ example_mh_kernel = metropolis_hastings ET gaussian_proposal
 mh_test_run :: IO ()
 mh_test_run = do
   g <- MWC.createSystemRandom
-  let n = 100000
-      act = viz_mh n 500
-      a0 = ([], 0, 1)
-      print_remaining (a,b,c) = unless (null a) $ putStrLn $ viz_json a (b*c) n
-  walk example_mh_kernel 0 n g a0 act >>= print_remaining
+  let (n,b) = (100000, 500)
+      act = viz_mh n b
+      a0 = ([], 0)
+  walk example_mh_kernel 0 n g a0 act >>= mh_print n . fst
   
 example_sa_kernel :: SimulatedAnnealing ExampleTarget Normal Double
 example_sa_kernel = simulated_annealing ET gaussian_proposal

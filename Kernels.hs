@@ -2,25 +2,28 @@
 
 module Kernels ( Kernel (..)
                , Action
-               , viz_json
-               , print_batch
-               , viz_batch
                , MetropolisHastings
                , metropolis_hastings
-               , viz_mh
-               , SimulatedAnnealing
-               , simulated_annealing
-               , viz_sa
-               , Mixture
-               , mixture
                , Temp
                , CoolingSchedule
                , MixRatio
+               , SimulatedAnnealing
+               , St_SA
+               , simulated_annealing
+               , Mixture
+               , mixture
+               , viz_json
+               , batch_print
+               , mh_print
+               , viz_mh
+               , sa_print
+               , viz_sa
                ) where
 
 import Distributions
 import Control.Monad.Primitive
 import qualified System.Random.MWC as MWC
+import Control.Monad
 
 type Rand m = MWC.Gen (PrimState m)
 type N = Int
@@ -35,36 +38,6 @@ class Kernel (k :: *) (x :: *) where
       x' <- step k x r
       st' <- act x' st
       walk k x' (n-1) r st' act
-
--- Actions
-
-id_action :: Monad m => Action x m a
-id_action _ = return
-
-skip :: Monad m => Int -> Action x m a -> Action x m a
-skip 0 act = act
-skip _ _ = id_action
-
--- Visualization --
-
-viz_json :: [Double] -> Int -> Int -> String
-viz_json samplelist current total = "{\"current_sample\": " ++ show current
-                                    ++ ", \"total_samples\": " ++ show total
-                                    ++ ", \"rvars\": {\"x\": " ++ show samplelist
-                                    ++ "}}"
-
-print_batch :: Int -> (x -> Double) -> Action x IO ([x], Int)
-print_batch n f x (l, i) 
-    | i+1 == n = print (map f $ x:l) >> return ([], 0)
-    | otherwise = return (x:l, i+1)
-
-type VizAction x m = Action x m ([x], Int, Int)
-
-viz_batch :: (x -> Double) -> N -> Int -> VizAction x IO
-viz_batch f total n x (l, i, current) 
-    | i+1 == n = do putStrLn $ viz_json (map f $ x:l) (current*n) total
-                    return ([], 0, current+1)
-    | otherwise = return (x:l, i+1, current)
 
 -- Metropolis Hastings --
 
@@ -82,9 +55,6 @@ instance (Distribution t a, Sampleable p a) => Kernel (MetropolisHastings t p a)
           denom = (density t xi) * (density (c_p xi) xstar)
       if u < accept then return xstar else return xi
 
-viz_mh :: N -> Int -> VizAction Double IO
-viz_mh = viz_batch id
-
 -- Simulated Annealing --
 
 type Temp = Double
@@ -95,7 +65,9 @@ data SimulatedAnnealing t p a = SA (t a) (a -> p a)
 simulated_annealing :: t a -> (a -> p a) -> SimulatedAnnealing t p a
 simulated_annealing = SA
 
-instance (Distribution t a, Sampleable p a) => Kernel (SimulatedAnnealing t p a) (a, Temp, CoolingSchedule) where
+type St_SA a = (a, Temp, CoolingSchedule)
+
+instance (Distribution t a, Sampleable p a) => Kernel (SimulatedAnnealing t p a) (St_SA a) where
     step (SA t c_p) (xi,temp,cool) g = do
       u <- sampleFrom (uniform 0 1) g
       xstar <- sampleFrom (c_p xi) g
@@ -104,12 +76,6 @@ instance (Distribution t a, Sampleable p a) => Kernel (SimulatedAnnealing t p a)
           denom = (*) (density (c_p xi) xstar) $ (**) (1 / temp) (density t xi)
           new_temp = cool temp
       if u < accept then return (xstar,new_temp,cool) else return (xi,new_temp,cool)
-
-first :: (a, b, c) -> a
-first (a,_,_) = a
-
-viz_sa :: N -> Int -> VizAction (Double, Temp, CoolingSchedule) IO
-viz_sa = viz_batch first
 
 -- Kernel Mixtures --
 
@@ -127,3 +93,48 @@ instance (Kernel k x, Kernel l x) => Kernel (Mixture k l) x where
 
 -- mixture_target :: (Distribution t a) => Mixture k l -> t a
 -- mixture_target (Mix _ (MH t _) (MH u _)) = if t == u then t else error ""
+
+-- Actions --
+
+id_action :: Monad m => Action x m a
+id_action _ = return
+
+skip :: Monad m => Int -> Action x m a -> Action x m a
+skip 0 act = act
+skip _ _ = id_action
+
+-- Visualization --
+
+viz_json :: N -> [Double] -> String
+viz_json total samplelist = "{\"total_samples\": " ++ show total
+                            ++ ", \"rvars\": {\"x\": " ++ show samplelist
+                            ++ "}}"
+
+type PrintAction x = Action x IO ([x], Int)
+
+batch_print :: ([x] -> IO ()) -> Int -> PrintAction x
+batch_print printf n x (l, i) 
+    | i+1 == n = printf (x:l) >> return ([], 0)
+    | otherwise = return (x:l, i+1)
+
+visualize :: (x -> Double) -> N -> [x] -> IO ()
+visualize f total = putStrLn . viz_json total . map f
+
+-- MH
+
+mh_print :: N -> [Double] -> IO ()
+mh_print total ls = unless (null ls) $ visualize id total ls
+
+viz_mh :: N -> Int -> PrintAction Double
+viz_mh = batch_print . mh_print
+
+-- SA
+
+first :: (a, b, c) -> a
+first (a,_,_) = a
+
+sa_print :: N -> [(St_SA Double)] -> IO ()
+sa_print total ls = unless (null ls) $ visualize first total ls
+
+viz_sa :: N -> Int -> PrintAction (St_SA Double)
+viz_sa total = batch_print $ visualize first total
