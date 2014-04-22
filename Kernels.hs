@@ -14,12 +14,12 @@ module Kernels ( Kernel (..)
                , simulated_annealing
                , Mixture
                , mixture
-               , viz_json
+               , batch
+               , pack
                , batch_print
-               , mh_print
-               , mh_batch_viz
-               , sa_print
-               , sa_batch_viz
+               , seeMH
+               , seeSA
+               , print_rem
                ) where
 
 import Distributions
@@ -27,22 +27,22 @@ import Control.Monad.Primitive
 import qualified System.Random.MWC as MWC
 import Control.Monad
 
--- Actions --
+-- Acts and actions --
 
-type Action x m a = x -> a -> m a
+type Act x m a = x -> a -> m a
 
-data Act x m a = Act (Action x m a) a
+data Action x m a = Action (Act x m a) a
 
-execute :: Monad m => Act x m a -> x -> m (Act x m a)
-execute (Act action a) x = action x a >>= return . Act action
+execute :: Monad m => Action x m a -> x -> m (Action x m a)
+execute (Action act a) x = act x a >>= return . Action act
 
-skip :: Monad m => Int -> Act x m a -> m (Act x m (a,Int))
-skip n (Act action a) = do
-  let skip_action x (b,i) = if i == n 
-                            then do b' <- action x b
-                                    return (b',0)
-                            else return (b,i+1)
-  return (Act skip_action (a,0))
+skip :: Monad m => Int -> Action x m a -> m (Action x m (a,Int))
+skip n (Action act a) = do
+  let skip_act x (b,i) = if i == n 
+                         then do b' <- act x b
+                                 return (b',0)
+                         else return (b,i+1)
+  return (Action skip_act (a,0))
 
 end_skip :: (a,Int) -> a
 end_skip = fst
@@ -55,11 +55,11 @@ type N = Int
 class Kernel (k :: *) (x :: *) where
     step :: PrimMonad m => k -> x -> Rand m -> m x
     
-    walk :: PrimMonad m => k -> x -> N -> Rand m -> Act x m a -> m a
-    walk _ _ 0 _ (Act _ a) = return a
-    walk k x n r act = do 
+    walk :: PrimMonad m => k -> x -> N -> Rand m -> Action x m a -> m a
+    walk _ _ 0 _ (Action _ a) = return a
+    walk k x n r action = do 
       x' <- step k x r
-      execute act x' >>= walk k x' (n-1) r
+      execute action x' >>= walk k x' (n-1) r
 
 -- Metropolis Hastings --
 
@@ -113,37 +113,40 @@ instance (Kernel k x, Kernel l x) => Kernel (Mixture k l) x where
       u <- sampleFrom (uniform 0 1) g
       if u < nu then step k x g else step l x g
 
--- mixture_target :: (Distribution t a) => Mixture k l -> t a
--- mixture_target (Mix _ (MH t _) (MH u _)) = if t == u then t else error ""
+-- Batch actions --  
+
+type Batch x = ([x], Int)
+type BatchAct x m = Act x m (Batch x)
+type BatchAction x m = Action x m (Batch x)
+
+batch :: Monad m => ([x] -> m s) -> Int -> BatchAct x m
+batch f n x (l, i) 
+    | i+1 == n = f (x:l) >> return ([], 0)
+    | otherwise = return (x:l, i+1)
+
+pack :: BatchAct x m -> BatchAction x m
+pack = flip Action ([], 0)
 
 -- Visualization --
 
-viz_json :: N -> [Double] -> String
-viz_json total samplelist = "{\"total_samples\": " ++ show total
-                            ++ ", \"rvars\": {\"x\": " ++ show samplelist
-                            ++ "}}"
+type PrintF x = [x] -> [Double]
 
-type Print x = ([x], Int)
-type PrintAction x = Action x IO (Print x)
+viz_json :: [Double] -> String
+viz_json samplelist = "{\"rvars\": {\"x\": " ++ show samplelist ++ "}}"
 
-batch_print :: ([x] -> IO ()) -> Int -> PrintAction x
-batch_print printf n x (l, i) 
-    | i+1 == n = printf (x:l) >> return ([], 0)
-    | otherwise = return (x:l, i+1)
+visualize :: PrintF x -> [x] -> IO ()
+visualize f ls = unless (null ls) $ putStrLn . viz_json $ f ls
 
-visualize :: ([x] -> [Double]) -> N -> [x] -> IO ()
-visualize f total = putStrLn . viz_json total . f
+batch_print :: PrintF x -> Int -> BatchAction x IO
+batch_print f = pack . batch (visualize f)
 
-pack :: PrintAction x -> Act x IO (Print x)
-pack = flip Act ([], 0)
+print_rem :: PrintF x -> Batch x -> IO ()
+print_rem f (xs, _) = visualize f xs
 
 -- MH
 
-mh_print :: N -> [Double] -> IO ()
-mh_print total ls = unless (null ls) $ visualize id total ls
-
-mh_batch_viz :: N -> Int -> Act Double IO (Print Double)
-mh_batch_viz total = pack . batch_print (mh_print total)
+seeMH :: PrintF Double
+seeMH = id
 
 -- SA
 
@@ -153,8 +156,6 @@ first (a,_,_) = a
 my_filter :: [Double] -> [Double]
 my_filter = filter (((>) 40) . abs)
 
-sa_print :: N -> [(St_SA Double)] -> IO ()
-sa_print total ls = unless (null ls) $ visualize (my_filter . map first) total ls
+seeSA :: PrintF (St_SA Double)
+seeSA = my_filter . map first
 
-sa_batch_viz :: N -> Int -> Act (St_SA Double) IO (Print (St_SA Double))
-sa_batch_viz total = pack . batch_print (sa_print total)
