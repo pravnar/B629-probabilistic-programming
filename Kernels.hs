@@ -1,14 +1,16 @@
-{-# LANGUAGE EmptyDataDecls, GADTs, MultiParamTypeClasses, KindSignatures, FlexibleInstances #-}
+{-# LANGUAGE GADTs, MultiParamTypeClasses, KindSignatures, FlexibleInstances #-}
 
 module Kernels ( Kernel (..)
                , MetropolisHastings
-               , metropolis_hastings
+               , metropolisHastings
+               , vizMH
                , Temp
                , CoolingSchedule
                , MixRatio
                , SimulatedAnnealing
-               , St_SA
-               , simulated_annealing
+               , StSA
+               , simulatedAnnealing
+               , vizSA
                , Mixture
                , mixture
                ) where
@@ -21,12 +23,11 @@ import qualified System.Random.MWC as MWC
 -- Kernels --
 
 type Rand m = MWC.Gen (PrimState m)
-type N = Int
 
 class Kernel (k :: *) (x :: *) where
     step :: PrimMonad m => k -> x -> Rand m -> m x
     
-    walk :: PrimMonad m => k -> x -> N -> Rand m -> Action x m a -> m a
+    walk :: PrimMonad m => k -> x -> Int -> Rand m -> Action x m a -> m a
     walk _ _ 0 _ (Action _ a) = return a
     walk k x n r action = do 
       x' <- step k x r
@@ -36,17 +37,20 @@ class Kernel (k :: *) (x :: *) where
 
 data MetropolisHastings t p a = MH (t a) (a -> p a) 
 
-metropolis_hastings :: t a -> (a -> p a) -> MetropolisHastings t p a
-metropolis_hastings = MH
+metropolisHastings :: t a -> (a -> p a) -> MetropolisHastings t p a
+metropolisHastings = MH
 
 instance (Distribution t a, Sampleable p a) => Kernel (MetropolisHastings t p a) a where
     step (MH t c_p) xi g = do
       u <- sampleFrom (uniform 0 1) g
       xstar <- sampleFrom (c_p xi) g
       let accept = min 1 (numer / denom)
-          numer = (density t xstar) * (density (c_p xstar) xi)
-          denom = (density t xi) * (density (c_p xi) xstar)
-      if u < accept then return xstar else return xi
+          numer = density t xstar * density (c_p xstar) xi
+          denom = density t xi * density (c_p xi) xstar
+      return $ if u < accept then xstar else xi
+
+vizMH :: PrintF Double
+vizMH = id
 
 -- Simulated Annealing --
 
@@ -55,12 +59,12 @@ type CoolingSchedule = Temp -> Temp
 
 data SimulatedAnnealing t p a = SA (t a) (a -> p a) 
 
-simulated_annealing :: t a -> (a -> p a) -> SimulatedAnnealing t p a
-simulated_annealing = SA
+simulatedAnnealing :: t a -> (a -> p a) -> SimulatedAnnealing t p a
+simulatedAnnealing = SA
 
-type St_SA a = (a, Temp, CoolingSchedule)
+type StSA a = (a, Temp, CoolingSchedule)
 
-instance (Distribution t a, Sampleable p a) => Kernel (SimulatedAnnealing t p a) (St_SA a) where
+instance (Distribution t a, Sampleable p a) => Kernel (SimulatedAnnealing t p a) (StSA a) where
     step (SA t c_p) (xi,temp,cool) g = do
       u <- sampleFrom (uniform 0 1) g
       xstar <- sampleFrom (c_p xi) g
@@ -68,7 +72,16 @@ instance (Distribution t a, Sampleable p a) => Kernel (SimulatedAnnealing t p a)
           numer = (*) (density (c_p xstar) xi) $ (**) (1 / temp) (density t xstar)
           denom = (*) (density (c_p xi) xstar) $ (**) (1 / temp) (density t xi)
           new_temp = cool temp
-      if u < accept then return (xstar,new_temp,cool) else return (xi,new_temp,cool)
+      return $ if u < accept then (xstar,new_temp,cool) else (xi,new_temp,cool)
+
+first :: (a, b, c) -> a
+first (a,_,_) = a
+
+myFilter :: [Double] -> [Double]
+myFilter = filter $ (>) 40 . abs
+
+vizSA :: PrintF (StSA Double)
+vizSA = myFilter . map first
 
 -- Kernel Mixtures --
 
@@ -83,4 +96,3 @@ instance (Kernel k x, Kernel l x) => Kernel (Mixture k l) x where
     step (Mix nu k l) x g = do
       u <- sampleFrom (uniform 0 1) g
       if u < nu then step k x g else step l x g
-

@@ -1,23 +1,25 @@
 module Actions ( Action (..)
+               , execute
                , skip
-               , end_skip
+               , endSkip
+               , Batch
+               , BatchAct
+               , BatchAction
                , batch
                , pack
-               , batch_print
-               , seeMH
-               , seeSA
-               , print_rem
+               , PrintF
+               , batchPrint
+               , printRem
                ) where
 
 import Control.Monad
-import Kernels
 
 type Act x m a = x -> a -> m a
 
 data Action x m a = Action (Act x m a) a
 
 execute :: Monad m => Action x m a -> x -> m (Action x m a)
-execute (Action act a) x = act x a >>= return . Action act
+execute (Action act a) x = liftM (Action act) (act x a)
 
 skip :: Monad m => Int -> Action x m a -> m (Action x m (a,Int))
 skip n (Action act a) = do
@@ -27,51 +29,35 @@ skip n (Action act a) = do
                          else return (b,i+1)
   return (Action skip_act (a,0))
 
-end_skip :: (a,Int) -> a
-end_skip = fst
+endSkip :: Monad m => (a,Int) -> m a
+endSkip = return . fst
 
 -- Batch actions --  
 
-type Batch x = ([x], Int)
-type BatchAct x m = Act x m (Batch x)
-type BatchAction x m = Action x m (Batch x)
+type Batch x m = ([x], Int, [x] -> m ())
+type BatchAct x m = Act x m (Batch x m)
+type BatchAction x m = Action x m (Batch x m)
 
-batch :: Monad m => ([x] -> m s) -> Int -> BatchAct x m
-batch f n x (l, i) 
-    | i+1 == n = f (x:l) >> return ([], 0)
-    | otherwise = return (x:l, i+1)
+batch :: Monad m => Int -> BatchAct x m
+batch n x (l, i, f) 
+    | i+1 == n = f (x:l) >> return ([], 0, f)
+    | otherwise = return (x:l, i+1, f)
 
-pack :: BatchAct x m -> BatchAction x m
-pack = flip Action ([], 0)
+pack :: ([x] -> m ()) -> BatchAct x m -> BatchAction x m
+pack f = flip Action ([], 0, f)
 
 -- Visualization --
 
 type PrintF x = [x] -> [Double]
 
-viz_json :: [Double] -> String
-viz_json samplelist = "{\"rvars\": {\"x\": " ++ show samplelist ++ "}}"
+vizJSON :: [Double] -> String
+vizJSON samplelist = "{\"rvars\": {\"x\": " ++ show samplelist ++ "}}"
 
 visualize :: PrintF x -> [x] -> IO ()
-visualize f ls = unless (null ls) $ putStrLn . viz_json $ f ls
+visualize f ls = unless (null ls) $ putStrLn . vizJSON $ f ls
 
-batch_print :: PrintF x -> Int -> BatchAction x IO
-batch_print f = pack . batch (visualize f)
+batchPrint :: PrintF x -> Int -> BatchAction x IO
+batchPrint f n = pack (visualize f) $ batch n
 
-print_rem :: PrintF x -> Batch x -> IO ()
-print_rem f (xs, _) = visualize f xs
-
--- MH
-
-seeMH :: PrintF Double
-seeMH = id
-
--- SA
-
-first :: (a, b, c) -> a
-first (a,_,_) = a
-
-my_filter :: [Double] -> [Double]
-my_filter = filter (((>) 40) . abs)
-
-seeSA :: PrintF (St_SA Double)
-seeSA = my_filter . map first
+printRem :: Batch x IO -> IO ()
+printRem (xs, _ , f) = f xs

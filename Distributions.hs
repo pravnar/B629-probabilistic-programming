@@ -35,7 +35,7 @@ instance Real a => Distribution Uniform a where
         | otherwise = 1 / realToFrac (b - a)
 
 instance Sampleable Uniform Double where
-    sampleFrom (U a b) g = MWC.uniformR (a,b) g
+    sampleFrom (U a b) = MWC.uniformR (a,b)
 
 data Normal a = N a a
 
@@ -45,11 +45,11 @@ normal mu sigma
     | otherwise = error $ "Std-dev for Normal distribution must be positive; got " ++ show sigma
 
 instance Distribution Normal Double where
-    density (N mu sigma) x = c * (exp $ n / d)
+    density (N mu sigma) x = c * exp (n / d)
         where c = 1 / (sigma * (sqrt 2*pi))
               xm = x - mu
               n = negate (xm * xm)
               d =  2 * (sigma * sigma)
 
 instance Sampleable Normal Double where
-    sampleFrom (N mu sigma) g = MWC.D.normal mu sigma g
+    sampleFrom (N mu sigma) = MWC.D.normal mu sigma
