@@ -1,4 +1,5 @@
-{-# LANGUAGE MultiParamTypeClasses, FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses, FlexibleContexts, TypeSynonymInstances, 
+  NoMonomorphismRestriction #-}
 
 module Main where
 
@@ -50,6 +51,8 @@ gauss2 = normal2 (5,5) (scalarCovMatrix 2)
 gaussianMix :: TargetMixture Normal2 Normal2 (Double,Double)
 gaussianMix = targetMix 0.5 gauss1 gauss2
 
+-- 
+
 proposal1 :: (Double,Double) -> Normal2 (Double,Double)
 proposal1 (x,_) = normal2 (x,2) (scalarCovMatrix 1)
 
@@ -64,10 +67,33 @@ mh1 = metropolisHastings gaussianMix proposal1
 mh2 :: MT
 mh2 = metropolisHastings gaussianMix proposal2
 
-mixtureMH :: (Kernel MT (Double,Double), Kernel MT (Double,Double)) => KernelMixture MT MT
+mixtureMH :: Kernel MT (Double,Double) => KernelMixture MT MT (Double,Double)
 mixtureMH = kernelMix 0.7 mh1 mh2
 
+p1 x = normal x 100
+
+p2 x = normal x 50
+
+m1 = metropolisHastings ET p1
+
+m2 = metropolisHastings ET p2
+
+mixMH = kernelMix 0.7 m1 m2
+
+vizD1 :: [(Double,Double)] -> [Double]
+vizD1 = fmap fst
+
+vizD2 :: [(Double,Double)] -> [Double]
+vizD2 = fmap snd
+
+viz2D :: [(Double,Double)] -> [(Double,Double)]
+viz2D = id
+
+mhTest2 = do
+  g <- MWC.createSystemRandom
+  let a = batchPrint vizD2 100
+      s = skip 100 a
+  walk mixtureMH (0,0) (10^6) g s
+
 main :: IO ()
-main = do
-  -- mhTest
-  saTest
+main = mhTest2

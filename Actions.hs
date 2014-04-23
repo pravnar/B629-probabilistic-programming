@@ -48,21 +48,21 @@ pack f act = Action act f ([], 0)
 
 -- Visualization --
 
-type PrintF x = [x] -> [Double]
+type PrintF x s = [x] -> [s]
 
-vizJSON :: [Double] -> String
+vizJSON :: Show s => [s] -> String
 vizJSON samplelist = "{\"rvars\": {\"x\": " ++ show samplelist ++ "}}"
 
-closeJSON :: [Double] -> String
+closeJSON :: Show s => [s] -> String
 closeJSON samplelist = "{\"close\": true, \"rvars\": {\"x\": " ++ show samplelist ++ "}}"
 
-visualize :: PrintF x -> Batch x -> IO ()
+visualize :: Show s => PrintF x s -> Batch x -> IO ()
 visualize f (ls,_) = unless (null ls) $ putStrLn.vizJSON $ f ls
 
-vizClose :: PrintF x -> Batch x -> IO ()
+vizClose :: Show s => PrintF x s -> Batch x -> IO ()
 vizClose f (ls,_) = unless (null ls) $ putStrLn.closeJSON $ f ls
 
-batchPrint :: PrintF x -> Int -> BatchAction x IO ()
+batchPrint :: Show s => PrintF x s -> Int -> BatchAction x IO ()
 batchPrint f n = 
     let viz = visualize f 
         close = vizClose f

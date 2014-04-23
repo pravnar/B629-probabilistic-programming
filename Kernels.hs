@@ -49,7 +49,7 @@ instance (Distribution t a, Sampleable p a) => Kernel (MetropolisHastings t p a)
           denom = density t xi * density (c_p xi) xstar
       return $ if u < accept then xstar else xi
 
-vizMH :: PrintF Double
+vizMH :: PrintF Double Double
 vizMH = id
 
 -- Simulated Annealing --
@@ -80,19 +80,19 @@ tripleFirst (a,_,_) = a
 myFilter :: [Double] -> [Double]
 myFilter = filter (\x -> x < 15 && x > -5)
 
-vizSA :: PrintF (StSA Double)
+vizSA :: PrintF (StSA Double) Double
 vizSA = myFilter . map tripleFirst
 
 -- Kernel Mixtures --
 
 type MixRatio = Double
 
-data KernelMixture k l = KernelMix MixRatio k l
+data KernelMixture k l x = KernelMix MixRatio k l
 
-kernelMix :: (Kernel k x, Kernel l x) => MixRatio -> k -> l -> KernelMixture k l
+kernelMix :: (Kernel k x, Kernel l x) => MixRatio -> k -> l -> KernelMixture k l x
 kernelMix = KernelMix
 
-instance (Kernel k x, Kernel l x) => Kernel (KernelMixture k l) x where
+instance (Kernel k x, Kernel l x) => Kernel (KernelMixture k l x) x where
     step (KernelMix nu k l) x g = do
       u <- sampleFrom (uniform 0 1) g
       if u < nu then step k x g else step l x g
