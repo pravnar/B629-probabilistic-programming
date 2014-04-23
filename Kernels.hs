@@ -11,8 +11,8 @@ module Kernels ( Kernel (..)
                , StSA
                , simulatedAnnealing
                , vizSA
-               , Mixture
-               , mixture
+               , KernelMixture
+               , kernelMix
                ) where
 
 import Distributions
@@ -27,8 +27,8 @@ type Rand m = MWC.Gen (PrimState m)
 class Kernel (k :: *) (x :: *) where
     step :: PrimMonad m => k -> x -> Rand m -> m x
     
-    walk :: PrimMonad m => k -> x -> Int -> Rand m -> Action x m a -> m a
-    walk _ _ 0 _ (Action _ a) = return a
+    walk :: PrimMonad m => k -> x -> Int -> Rand m -> Action x m a b -> m b
+    walk _ _ 0 _ (Action _ f a) = f a
     walk k x n r action = do 
       x' <- step k x r
       execute action x' >>= walk k x' (n-1) r
@@ -74,25 +74,25 @@ instance (Distribution t a, Sampleable p a) => Kernel (SimulatedAnnealing t p a)
           new_temp = cool temp
       return $ if u < accept then (xstar,new_temp,cool) else (xi,new_temp,cool)
 
-first :: (a, b, c) -> a
-first (a,_,_) = a
+tripleFirst :: (a, b, c) -> a
+tripleFirst (a,_,_) = a
 
 myFilter :: [Double] -> [Double]
-myFilter = filter $ (>) 40 . abs
+myFilter = filter (\x -> x < 15 && x > -5)
 
 vizSA :: PrintF (StSA Double)
-vizSA = myFilter . map first
+vizSA = myFilter . map tripleFirst
 
 -- Kernel Mixtures --
 
 type MixRatio = Double
 
-data Mixture k l = Mix MixRatio k l
+data KernelMixture k l = KernelMix MixRatio k l
 
-mixture :: (Kernel k x, Kernel l x) => MixRatio -> k -> l -> Mixture k l
-mixture = Mix
+kernelMix :: (Kernel k x, Kernel l x) => MixRatio -> k -> l -> KernelMixture k l
+kernelMix = KernelMix
 
-instance (Kernel k x, Kernel l x) => Kernel (Mixture k l) x where
-    step (Mix nu k l) x g = do
+instance (Kernel k x, Kernel l x) => Kernel (KernelMixture k l) x where
+    step (KernelMix nu k l) x g = do
       u <- sampleFrom (uniform 0 1) g
       if u < nu then step k x g else step l x g
