@@ -12,14 +12,14 @@ data ExampleTarget a = ET
 
 -- Bimodal distribution from section 3.1 of
 -- "An Introduction to MCMC for Machine Learning" by C. Andrieu et al.
-instance Distribution ExampleTarget Double where
-    density ET x = 0.3 * exp (-0.2*x*x) 
+instance AbsCont ExampleTarget Double where
+    density ET [x] = 0.3 * exp (-0.2*x*x) 
                   + 0.7 * exp (-0.2*((x-10)**2))
 
-gaussianProposal :: Double -> Normal Double
+gaussianProposal :: [Double] -> Normal Double
 gaussianProposal x = normal x 100
 
-exampleMH :: Kernel Double IO
+exampleMH :: Kernel [Double] IO
 exampleMH = metropolisHastings ET gaussianProposal
 
 mhTest :: IO ()
@@ -27,7 +27,7 @@ mhTest = do
   g <- MWC.createSystemRandom
   let a = batchPrint vizMH 100
       s = skip 100 a
-  walk exampleMH 0 (10^6) g s
+  walk exampleMH [0] (10^6) g s
   
 -- exampleSA :: SimulatedAnnealing ExampleTarget Normal Double
 -- exampleSA = simulatedAnnealing ET gaussianProposal
