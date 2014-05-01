@@ -11,16 +11,15 @@ module Kernels ( Step
                , simulatedAnnealing
                , vizSA
                , mixSteps
+               , cycleKernel
                ) where
 
 import Distributions
 import Actions
-import Control.Monad.Primitive
-import qualified System.Random.MWC as MWC
 
 -- Kernels --
 
-type Step x = x -> Rand -> IO x
+type Step x = Rand -> x -> IO x
 type Kernel x a = Target a -> (Sample a -> Proposal a) -> Step x
 
 -- data Kernel x where
@@ -29,14 +28,14 @@ type Kernel x a = Target a -> (Sample a -> Proposal a) -> Step x
 walk :: Step x -> x -> Int -> Rand -> Action x IO a b -> IO b
 walk _ _ 0 _ (Action _ f a) = f a
 walk step x n r action = do 
-  x' <- step x r
+  x' <- step r x
   execute action x' >>= walk step x' (n-1) r
 
 -- Metropolis Hastings --
 
 metropolisHastings :: Kernel (Sample a) a
 metropolisHastings t c_p = 
-    let mhStep xi g = do
+    let mhStep g xi = do
           u <- sampleFrom (uniform [0] [1]) g
           xstar <- sampleFrom (c_p xi) g
           let accept = min 1 (numer / denom)
@@ -57,7 +56,7 @@ type StateSA a = (a, Temp, CoolingSchedule)
 
 simulatedAnnealing :: Kernel (StateSA (Sample a)) a
 simulatedAnnealing t c_p = 
-    let saStep (xi,temp,cool) g = do
+    let saStep g (xi,temp,cool) = do
           u <- sampleFrom (uniform [0] [1]) g
           xstar <- sampleFrom (c_p xi) g
           let accept = min 1 (numer / denom)
@@ -81,16 +80,17 @@ vizSA = vizMH . myFilter . map tripleFirst
 
 mixSteps :: MixRatio -> Step x -> Step x -> Step x
 mixSteps nu kstep lstep = 
-    let mixStep x g = do
+    let mixStep g x = do
           u <- sampleFrom (uniform [0] [1]) g
-          if head u < nu then kstep x g else lstep x g
+          if head u < nu then kstep g x else lstep g x
     in mixStep
 
 -- Kernel Cycles --
 
--- cycleKernel :: Kernel x a -> Target a -> [Sample a -> Proposal a] -> Step x
--- cycleKernel kernel t (cp:cps) =
---   let middles c_p iox g = do x <- iox
---                             return kernel t c_p x g
---       cycleStep x g = 
+cycleKernel :: Kernel x a -> Target a -> [Sample a -> Proposal a] -> Step x
+cycleKernel kernel t (cp:cps) =
+  let middles c_p g iox = iox >>= kernel t c_p g
+      combine g step c_p = (middles c_p g) . step
+      cycleStep g = foldl (combine g) (kernel t cp g) cps
+  in cycleStep 
         
