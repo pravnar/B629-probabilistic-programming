@@ -14,33 +14,33 @@ data ExampleTarget a = ET
 -- "An Introduction to MCMC for Machine Learning" by C. Andrieu et al.
 instance AbsCont ExampleTarget Double where
     density ET [x] = 0.3 * exp (-0.2*x*x) 
-                  + 0.7 * exp (-0.2*((x-10)**2))
+                       + 0.7 * exp (-0.2*((x-10)**2))
 
-gaussianProposal :: [Double] -> Normal Double
-gaussianProposal x = normal x 100
+gaussianProposal :: Sample Double -> Normal Double
+gaussianProposal x = normal x [[10000]]
 
-exampleMH :: Kernel [Double] IO
+exampleMH :: Kernel (Sample Double) IO
 exampleMH = metropolisHastings ET gaussianProposal
 
 mhTest :: IO ()
 mhTest = do
   g <- MWC.createSystemRandom
-  let a = batchPrint vizMH 100
+  let a = batchPrint vizMH 50
       s = skip 100 a
   walk exampleMH [0] (10^6) g s
-  
--- exampleSA :: SimulatedAnnealing ExampleTarget Normal Double
--- exampleSA = simulatedAnnealing ET gaussianProposal
 
--- saTest :: IO ()
--- saTest = do
---   g <- MWC.createSystemRandom
---   let -- cool_sch t = t / 1.125 :: Temp 
---       coolSch = (*) (1 - 1e-3) :: Temp -> Temp
---       x0 = (0, 1, coolSch)
---       a = batchPrint vizSA 100
---       s = skip 100 a
---   walk exampleSA x0 (10^6) g s
+exampleSA :: Kernel (StateSA (Sample Double)) IO
+exampleSA = simulatedAnnealing ET gaussianProposal
+
+saTest :: IO ()
+saTest = do
+  g <- MWC.createSystemRandom
+  let -- cool_sch t = t / 1.125 :: Temp 
+      coolSch = (*) (1 - 1e-3) :: Temp -> Temp
+      x0 = ([0], 1, coolSch)
+      a = batchPrint vizSA 100
+      s = skip 100 a
+  walk exampleSA x0 (10^6) g s
 
 -- gauss1 :: Normal2 (Double,Double)
 -- gauss1 = normal2 (0,0) (scalarCovMatrix 1)
@@ -96,4 +96,4 @@ mhTest = do
 --   walk mixtureMH (0,0) (10^6) g s
 
 main :: IO ()
-main = mhTest
+main = saTest

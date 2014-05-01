@@ -1,15 +1,18 @@
 {-# LANGUAGE MultiParamTypeClasses, KindSignatures, FlexibleInstances, GADTs, 
   OverlappingInstances #-}
 
-module Distributions ( AbsCont (..)
-                     , Sampleable (..)
-                     , Uniform
+module Distributions ( Rand
+                     , Probability
+                     , Sample
+                     , AbsCont
+                     , density
+                     , Target (..)
+                     , Proposal (..)
+                     , sampleFrom
                      , uniform
-                     , Normal
                      , normal
-                     , TargetMixture
+                     , MixRatio
                      , targetMix
-                     , ProposalMixture
                      , proposalMix
                      , first
                      , second
@@ -17,27 +20,42 @@ module Distributions ( AbsCont (..)
                      ) where
 
 import qualified System.Random.MWC as MWC
+import qualified System.Random.MWC.Distributions as MWC.D
+import Control.Monad
 import Control.Monad.Primitive
 import qualified Data.Packed.Matrix as M
 import qualified Numeric.LinearAlgebra.Algorithms as LA
 import qualified Numeric.Container as C
 
+type Rand  = MWC.Gen (PrimState IO)
 type Probability = Double
+type Sample a = [a]
 
-class AbsCont (d :: * -> *) (a :: *) where
-    density :: d a -> [a] -> Probability
+type Density a = Sample a -> Probability
 
-class AbsCont d a => Sampleable d a where
-    sampleFrom :: (PrimMonad m) => d a -> MWC.Gen (PrimState m) -> m [a]
+class AbsCont d a where
+    density :: d a -> Density a
+
+data Target a = T (Density a)
+
+instance AbsCont Target a where
+    density (T d) = d
+
+type SampleFrom a = Rand -> IO (Sample a)
+data Proposal a = P (Density a) (SampleFrom a)
+
+instance AbsCont Proposal a where
+    density (P d _) = d
+
+sampleFrom :: Proposal a -> SampleFrom a
+sampleFrom (P _ s) = s
 
 -- Uniform -- 
 
-data Uniform a = U [a] [a]
-
-uniform :: Ord a => [a] -> [a] -> Uniform a
+uniform :: (MWC.Variate a, Real a) => Sample a -> Sample a -> Proposal a
 uniform a b
     | b < a = uniform b a
-    | a < b = U a b
+    | a < b = makeUniform a b
     | otherwise = error "Wrong parameters for Uniform distribution"
 
 unif1D :: Real a => a -> a -> a -> Probability
@@ -46,64 +64,61 @@ unif1D a b x
     | x > b = 0
     | otherwise = 1 / realToFrac (b - a)
 
-instance Real a => AbsCont Uniform a where
-    density (U a b) x =
-        let tuf f (p,q,r) = f p q r
-        in product . map (tuf unif1D) $ zip3 a b x
-            
-instance Sampleable Uniform Double where
-    sampleFrom (U a b) g = mapM (flip MWC.uniformR g) $ zip a b
+makeUniform :: (MWC.Variate a, Real a) => Sample a -> Sample a -> Proposal a
+makeUniform a b = 
+    let tuf f (p,q,r) = f p q r
+        uniD x = product . map (tuf unif1D) $ zip3 a b x
+        uniSF g = mapM (flip MWC.uniformR g) $ zip a b
+    in P uniD uniSF
                                          
 -- Normal --
 
-data Normal a = N [a] (M.Matrix a)
+type CovMatrix = M.Matrix Double
+type Mu a = M.Matrix a
 
-normal :: (Ord a, Show a, M.Element a) => [a] -> [[a]] -> Normal a
-normal mu cov = N mu (M.fromLists cov)
+mu :: M.Element a => Sample a -> Mu a
+mu mean = M.fromLists [mean]
 
-instance AbsCont Normal Double where
-    density (N mu cov) x = c * exp (-d / 2)
-        where (covInv, (lndet, sign)) = LA.invlndet cov
-              c = 1 / (sqrt $ (exp lndet*sign) * (2*pi) ^^ (length mu))
-              xm = C.sub (M.fromLists [x]) (M.fromLists [mu])
-              prod = xm C.<> covInv C.<> (M.trans xm)
-              d = (M.@@>) prod (0,0)
+normal :: Sample Double -> [[Double]] -> Proposal Double
+normal mean cov =
+    let covMat = M.fromLists cov
+        (muMat, n) = (mu mean, length mean)
+    in P (normalD muMat covMat) (normalSF muMat covMat n)
 
-instance Sampleable Normal Double where
-    sampleFrom (N mu cov) g = do
-      let l = length mu
-          muMat = M.fromLists [mu]
-      z <- flip sampleFrom g $ uniform (replicate l 0.0) (replicate l 1.0)
+normalD :: Mu Double -> CovMatrix -> Density Double
+normalD m cov x = c * exp (-d / 2)
+    where (covInv, (lndet, sign)) = LA.invlndet cov
+          c1 = (2*pi) ^^ (length x)
+          c = 1 / (sqrt $ sign * (exp lndet) * c1)
+          xm = C.sub (M.fromLists [x]) m
+          prod = xm C.<> covInv C.<> (M.trans xm)
+          d = (M.@@>) prod (0,0)
+
+normalSF :: Mu Double -> CovMatrix -> Int -> SampleFrom Double
+normalSF m cov n g = do
+      z <- replicateM n (MWC.D.standard g)
       let zt = M.trans $ M.fromLists [z]
           a = LA.chol cov
-      return . head . M.toLists $ C.add muMat $ C.trans $ a C.<> zt
+      return . head . M.toLists $ C.add m $ C.trans $ a C.<> zt
 
 -- Target Mixtures --
 
 type MixRatio = Double
 
-data TargetMixture t u a = TargetMix MixRatio (t a) (u a)
-
-targetMix :: (AbsCont t a, AbsCont u a) => MixRatio -> t a -> u a -> TargetMixture t u a
-targetMix = TargetMix
-
-instance (AbsCont t a, AbsCont u a) => AbsCont (TargetMixture t u) a where
-    density (TargetMix nu t u) x = nu*(density t x) + (1-nu)*(density u x)
+targetMix :: MixRatio -> Target a -> Target a -> Target a
+targetMix nu t u = 
+    let mixD x = nu*(density t x) + (1-nu)*(density u x)
+    in T mixD
 
 -- Proposal Mixtures --
 
-data ProposalMixture p q a = ProposalMix MixRatio (p a) (q a)
-
-proposalMix :: (Sampleable p a, Sampleable q a) => MixRatio -> p a -> q a -> ProposalMixture p q a
-proposalMix = ProposalMix
-
-instance (AbsCont p a, AbsCont q a) => AbsCont (ProposalMixture p q) a where
-    density (ProposalMix nu p q) x = nu*(density p x) + (1-nu)*(density q x)
-
-instance (Sampleable p a, Sampleable q a) => Sampleable (ProposalMixture p q) a where
-    sampleFrom (ProposalMix nu p q) g = do
-      u <- sampleFrom (uniform [0] [1]) g
-      if head u < nu then sampleFrom p g else sampleFrom q g
+proposalMix :: MixRatio -> Proposal a -> Proposal a -> Proposal a
+proposalMix nu p q = 
+    let mixD x = nu*(density p x) + (1-nu)*(density q x)
+        mixSF g = do
+          u <- sampleFrom (uniform [0] [1]) g
+          if head u < nu then sampleFrom p g else sampleFrom q g
+    in P mixD mixSF
 
 -- Semantic editor combinators --
 
