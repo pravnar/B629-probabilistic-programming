@@ -20,10 +20,7 @@ import Actions
 -- Kernels --
 
 type Step x = Rand -> x -> IO x
-type Kernel x a = Target a -> (Sample a -> Proposal a) -> Step x
-
--- data Kernel x where
---     K :: (AbsCont t a, Sampleable p a) => Step x t p a -> Kernel x
+type Kernel x a = Target a -> (a -> Proposal a) -> Step x
 
 walk :: Step x -> x -> Int -> Rand -> Action x IO a b -> IO b
 walk _ _ 0 _ (Action _ f a) = f a
@@ -33,7 +30,7 @@ walk step x n r action = do
 
 -- Metropolis Hastings --
 
-metropolisHastings :: Kernel (Sample a) a
+metropolisHastings :: Kernel [a] [a]
 metropolisHastings t c_p = 
     let mhStep g xi = do
           u <- sampleFrom (uniform [0] [1]) g
@@ -45,7 +42,7 @@ metropolisHastings t c_p =
     in mhStep
 
 -- Visualizes only the first dimension
-vizMH :: PrintF (Sample Double) Double
+vizMH :: PrintF [Double] Double
 vizMH = map head
 
 -- Simulated Annealing --
@@ -54,7 +51,7 @@ type Temp = Double
 type CoolingSchedule = Temp -> Temp
 type StateSA a = (a, Temp, CoolingSchedule)
 
-simulatedAnnealing :: Kernel (StateSA (Sample a)) a
+simulatedAnnealing :: Kernel (StateSA [a]) [a]
 simulatedAnnealing t c_p = 
     let saStep g (xi,temp,cool) = do
           u <- sampleFrom (uniform [0] [1]) g
@@ -69,11 +66,11 @@ simulatedAnnealing t c_p =
 tripleFirst :: (a, b, c) -> a
 tripleFirst (a,_,_) = a
 
-myFilter :: [Sample Double] -> [Sample Double]
+myFilter :: [[Double]] -> [[Double]]
 myFilter = filter (\x -> x < (repeat 15) && x > (repeat $ -5))
 
 -- Visualizes only the first dimension
-vizSA :: PrintF (StateSA (Sample Double)) Double
+vizSA :: PrintF (StateSA [Double]) Double
 vizSA = vizMH . myFilter . map tripleFirst
 
 -- Kernel Mixtures --
@@ -87,10 +84,9 @@ mixSteps nu kstep lstep =
 
 -- Kernel Cycles --
 
-cycleKernel :: Kernel x a -> Target a -> [Sample a -> Proposal a] -> Step x
-cycleKernel kernel t (cp:cps) =
-  let middles c_p g iox = iox >>= kernel t c_p g
-      combine g step c_p = (middles c_p g) . step
-      cycleStep g = foldl (combine g) (kernel t cp g) cps
-  in cycleStep 
-        
+cycleKernel :: Kernel x a -> Target a -> [a -> Proposal a] -> Step x
+cycleKernel kernel t cps =
+  let steps g = [kernel t cp g | cp <- cps]
+      combine comb step = (\iox -> iox >>= comb) . step
+      cycleStep g = foldl combine return (steps g)
+  in cycleStep

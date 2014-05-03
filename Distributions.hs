@@ -3,20 +3,25 @@
 
 module Distributions ( Rand
                      , Probability
-                     , Sample
-                     , AbsCont
                      , density
                      , Target (..)
                      , Proposal (..)
                      , sampleFrom
+                     , fromProposal
                      , uniform
+                     , diag
                      , normal
                      , MixRatio
                      , targetMix
                      , proposalMix
                      , first
                      , second
-                     , replaceWith
+                     , car
+                     , cdr
+                     , nth
+                     , swapWith
+                     , updateNth
+                     -- , updateBlock
                      ) where
 
 import qualified System.Random.MWC as MWC
@@ -29,30 +34,32 @@ import qualified Numeric.Container as C
 
 type Rand  = MWC.Gen (PrimState IO)
 type Probability = Double
-type Sample a = [a]
 
-type Density a = Sample a -> Probability
+type Density a = a -> Probability
 
-class AbsCont d a where
+class HasDensity d a where
     density :: d a -> Density a
 
 data Target a = T (Density a)
 
-instance AbsCont Target a where
+instance HasDensity Target a where
     density (T d) = d
 
-type SampleFrom a = Rand -> IO (Sample a)
-data Proposal a = P (Density a) (SampleFrom a)
+type Sample a = Rand -> IO a
+data Proposal a = P (Density a) (Sample a)
 
-instance AbsCont Proposal a where
+instance HasDensity Proposal a where
     density (P d _) = d
 
-sampleFrom :: Proposal a -> SampleFrom a
+sampleFrom :: Proposal a -> Sample a
 sampleFrom (P _ s) = s
+
+fromProposal :: Proposal a -> Target a
+fromProposal = T . density
 
 -- Uniform -- 
 
-uniform :: (MWC.Variate a, Real a) => Sample a -> Sample a -> Proposal a
+uniform :: (MWC.Variate a, Real a) => [a] -> [a] -> Proposal [a]
 uniform a b
     | b < a = uniform b a
     | a < b = makeUniform a b
@@ -64,7 +71,7 @@ unif1D a b x
     | x > b = 0
     | otherwise = 1 / realToFrac (b - a)
 
-makeUniform :: (MWC.Variate a, Real a) => Sample a -> Sample a -> Proposal a
+makeUniform :: (MWC.Variate a, Real a) => [a] -> [a] -> Proposal [a]
 makeUniform a b = 
     let tuf f (p,q,r) = f p q r
         uniD x = product . map (tuf unif1D) $ zip3 a b x
@@ -76,16 +83,19 @@ makeUniform a b =
 type CovMatrix = M.Matrix Double
 type Mu a = M.Matrix a
 
-mu :: M.Element a => Sample a -> Mu a
+mu :: M.Element a => [a] -> Mu a
 mu mean = M.fromLists [mean]
 
-normal :: Sample Double -> [[Double]] -> Proposal Double
+diag :: [Double] -> [[Double]]
+diag d = [(nth i) (swapWith e) (replicate (length d) 0) | (i,e) <- zip [1..] d]
+
+normal :: [Double] -> [[Double]] -> Proposal [Double]
 normal mean cov =
     let covMat = M.fromLists cov
         (muMat, n) = (mu mean, length mean)
     in P (normalD muMat covMat) (normalSF muMat covMat n)
 
-normalD :: Mu Double -> CovMatrix -> Density Double
+normalD :: Mu Double -> CovMatrix -> Density [Double]
 normalD m cov x = c * exp (-d / 2)
     where (covInv, (lndet, sign)) = LA.invlndet cov
           c1 = (2*pi) ^^ (length x)
@@ -94,7 +104,7 @@ normalD m cov x = c * exp (-d / 2)
           prod = xm C.<> covInv C.<> (M.trans xm)
           d = (M.@@>) prod (0,0)
 
-normalSF :: Mu Double -> CovMatrix -> Int -> SampleFrom Double
+normalSF :: Mu Double -> CovMatrix -> Int -> Sample [Double]
 normalSF m cov n g = do
       z <- replicateM n (MWC.D.standard g)
       let zt = M.trans $ M.fromLists [z]
@@ -130,5 +140,58 @@ second :: (b -> b') -> ((a,b) -> (a,b'))
 first  f = \ (a,b) -> (f a, b)
 second g = \ (a,b) -> (a, g b)
 
-replaceWith :: a -> (b -> a)
-replaceWith x _ = x
+car :: (a -> a) -> ([a] -> [a])
+cdr :: ([a] -> [a]) -> ([a] -> [a])
+
+car f = \(x:xs) -> f x : xs
+cdr f = \(x:xs) -> x : f xs
+
+nth :: Int -> (a -> a) -> ([a] -> [a])
+nth 1 = car
+nth n = cdr . nth (n-1)
+
+carM :: Monad m => (a -> m a) -> ([a] -> m [a])
+carM f (x:xs) = do x' <- f x 
+                   return $ x' : xs
+
+cdrM :: Monad m => ([a] -> m [a]) -> ([a] -> m [a])
+cdrM f (x:xs) = do xs' <- f xs
+                   return $ x : xs'
+
+nthM :: Monad m => Int -> (a -> m a) -> ([a] -> m [a])
+nthM 1 = carM
+nthM n = cdrM . nthM (n-1)
+
+swapWith :: a -> (b -> a)
+swapWith x _ = x
+
+unlift :: Monad m => ([a] -> m [a]) -> a -> m a
+unlift f x = f [x] >>= return.head
+
+-- A sample is 1-indexed, i.e., dimensions go from 1 to n
+block :: Int -> Int -> [a] -> [a]
+block begin end
+    | begin == end = \ls -> [ls !! (begin - 1)]
+    | otherwise = take (end + 1 - begin) . drop (begin-1)
+
+updateNth :: Int -> ([a] -> Proposal [a]) -> [a] -> Proposal [a]
+updateNth n p x = 
+    let den y = flip density y $ p (block n n y)
+        s g = nthM n (unlift (\xn -> sampleFrom (p xn) g)) x
+    in P den s
+
+-- updateBlock :: Int -> [a] -> Proposal [a] -> Proposal [a]
+-- updateBlock n x (P d s) = 
+--     let s' g = do x' <- s g 
+--                   return $ (nth n) (swapWith $ x' !! (n-1)) x
+--     in P d s'
+
+-- updateBlock :: (a -> a) -> Proposal a -> Proposal a
+-- updateBlock f (P d s) = let s' g = s g >>= return . f in P d s'
+
+-- ex = (second.first.second) not (1,((3,True),2))
+-- eg = (cdr.cdr.car) not [False,False,True,False]
+-- examp = (nth 4) not [False,False,False,True,False]
+-- exampl = (nth 4) (swapWith 4) [1,2,3,5,5]
+-- diagex = diag [1,2,3,4]
+-- cdrex = cdr (\ls -> map ((+)10) ls) [1,2,3,4,5]
