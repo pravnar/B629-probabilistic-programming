@@ -11,6 +11,7 @@ module Distributions ( Rand
                      , uniform
                      , diag
                      , normal
+                     , categorical
                      , MixRatio
                      , targetMix
                      , proposalMix
@@ -32,6 +33,8 @@ import Control.Monad.Primitive
 import qualified Data.Packed.Matrix as M
 import qualified Numeric.LinearAlgebra.Algorithms as LA
 import qualified Numeric.Container as C
+import qualified Data.Vector as V
+import Data.Maybe
 
 type Rand  = MWC.Gen (PrimState IO)
 type Probability = Double
@@ -111,6 +114,24 @@ normalSF m cov n g = do
       let zt = M.trans $ M.fromLists [z]
           a = LA.chol cov
       return . head . M.toLists $ C.add m $ C.trans $ a C.<> zt
+
+-- Categorical --
+
+normalize :: V.Vector Probability -> V.Vector Probability
+normalize probs = let s = V.sum probs in V.map (flip (/) s) probs
+
+categorical :: Eq a => [a] -> [Probability] -> Proposal a
+categorical cs ps = 
+    let (cats,probs) = (V.fromList cs, normalize $ V.fromList ps)
+        den cat = (V.!) probs $ fromJust $ V.elemIndex cat cats
+    in P den (catSF cats probs) 
+
+catSF :: V.Vector a -> V.Vector Probability -> Sample a
+catSF cats probs g = do 
+  u <- sampleFrom (uniform [0] [1]) g
+  let cdfs = V.prescanl (+) 0 probs
+      i = V.maxIndex $ V.filter ((>=) $ head u) cdfs
+  return $ cats V.! i
 
 -- Target Mixtures --
 
@@ -217,4 +238,5 @@ updateBlock n m p x =
 -- exampl = (nth 4) (swapWith 4) [1,2,3,5,5]
 -- diagex = diag [1,2,3,4]
 -- cdrex = cdr (\ls -> map ((+)10) ls) [1,2,3,4,5]
-
+-- cprobs = U.prescanl (+) 0 $ normalize $ U.fromList [0.3, 0.4, 0.6, 0.3, 0.7]            
+-- gcp = U.maximum $ U.filter ((>=) 0.60) cprobs
