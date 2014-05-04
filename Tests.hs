@@ -68,8 +68,28 @@ cycleTest = do
       s = skip 100 a
   walk mhCycle [0,0] (10^6) g a
 
+fourD :: Target [Double]
+fourD = fromProposal $ normal [0,1,4,7] (diag [2,2,2,2])
+
+fp1 :: [Double] -> Proposal [Double]
+fp1 = updateBlock 1 2 (\y -> normal y (diag [1,1]))
+
+fp2 :: [Double] -> Proposal [Double]
+fp2 = updateBlock 3 3 (\y -> normal y [[1]])
+
+blockMH :: Step [Double]
+blockMH = let mh1 = metropolisHastings fourD fp1
+              mh2 = metropolisHastings fourD fp2
+          in mixSteps 0.5 mh1 mh2
+
+blockTest :: IO ()
+blockTest = do
+  g <- MWC.createSystemRandom
+  let a = batchPrint vizMH 50
+  walk blockMH [0,0,0,0] (10^6) g a
+
 main :: IO ()
-main = cycleTest
+main = blockTest
 
 gTest :: IO ()
 gTest = do 

@@ -5,7 +5,6 @@ module Distributions ( Rand
                      , Probability
                      , Target (..)
                      , density
-                     -- , makeTarget
                      , Proposal (..)
                      , sampleFrom
                      , fromProposal
@@ -20,8 +19,10 @@ module Distributions ( Rand
                      , car
                      , cdr
                      , nth
+                     , block
                      , swapWith
                      , updateNth
+                     , updateBlock
                      ) where
 
 import qualified System.Random.MWC as MWC
@@ -41,18 +42,15 @@ data Target a = T (Density a)
 
 class HasDensity d a where
     density :: d a -> Density a
-    -- makeTarget :: d a -> Target a
 
 instance HasDensity Target a where
     density (T d) = d
-    -- makeTarget = id
 
 type Sample a = Rand -> IO a
 data Proposal a = P (Density a) (Sample a)
 
 instance HasDensity Proposal a where
     density (P d _) = d
-    -- makeTarget (P d _) = T d
 
 sampleFrom :: Proposal a -> Sample a
 sampleFrom (P _ s) = s
@@ -166,22 +164,51 @@ nthM :: Monad m => Int -> (a -> m a) -> ([a] -> m [a])
 nthM 1 = carM
 nthM n = cdrM . nthM (n-1)
 
+block :: Int -> Int -> ([a] -> [a]) -> ([a] -> [a])
+block begin end f ls
+    | begin == end = nth begin (unlift f) ls
+    | begin == 1 = f (take end ls) ++ drop end ls
+    | otherwise = front ++ f mids ++ back
+    where (front, mids, back) = chopAt begin end ls
+
+blockM :: Monad m => Int -> Int -> ([a] -> m [a]) -> ([a] -> m [a])
+blockM begin end f ls
+    | begin == end = nthM begin (unliftM f) ls
+    | begin == 1 = f (take end ls) >>= return . flip (++) (drop end ls)
+    | otherwise = do let (front, mids, rest) = chopAt begin end ls
+                     fmids <- f mids
+                     return $ front ++ fmids ++ rest
+
 swapWith :: a -> (b -> a)
 swapWith x _ = x
 
-unlift :: Monad m => ([a] -> m [a]) -> a -> m a
-unlift f x = f [x] >>= return.head
+unlift :: ([a] -> [a]) -> a -> a
+unlift f x = head $ f [x]
+
+unliftM :: Monad m => ([a] -> m [a]) -> a -> m a
+unliftM f x = f [x] >>= return.head
 
 -- A sample is 1-indexed, i.e., dimensions go from 1 to n
-block :: Int -> Int -> [a] -> [a]
-block begin end
+getBlock :: Int -> Int -> [a] -> [a]
+getBlock begin end
     | begin == end = \ls -> [ls !! (begin - 1)]
     | otherwise = take (end + 1 - begin) . drop (begin-1)
 
+chopAt :: Int -> Int -> [a] -> ([a], [a], [a])
+chopAt begin end ls = (front, mids, back)
+    where (front, rest) = splitAt (begin-1) ls
+          (mids, back) = splitAt (end + 1 - begin) rest
+
 updateNth :: Int -> ([a] -> Proposal [a]) -> [a] -> Proposal [a]
 updateNth n p x = 
-    let den y = flip density (block n n y) $ p (block n n x)
-        s g = nthM n (unlift (\xn -> sampleFrom (p xn) g)) x
+    let den y = flip density (getBlock n n y) $ p (getBlock n n x)
+        s g = nthM n (unliftM (\xn -> sampleFrom (p xn) g)) x
+    in P den s
+
+updateBlock :: Int -> Int -> ([a] -> Proposal [a]) -> [a] -> Proposal [a]
+updateBlock n m p x = 
+    let den y = flip density (getBlock n m y) $ p (getBlock n m x)
+        s g = blockM n m (\b -> sampleFrom (p b) g) x
     in P den s
 
 -- ex = (second.first.second) not (1,((3,True),2))
