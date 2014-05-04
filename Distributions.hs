@@ -3,8 +3,9 @@
 
 module Distributions ( Rand
                      , Probability
-                     , density
                      , Target (..)
+                     , density
+                     -- , makeTarget
                      , Proposal (..)
                      , sampleFrom
                      , fromProposal
@@ -21,7 +22,6 @@ module Distributions ( Rand
                      , nth
                      , swapWith
                      , updateNth
-                     -- , updateBlock
                      ) where
 
 import qualified System.Random.MWC as MWC
@@ -37,19 +37,22 @@ type Probability = Double
 
 type Density a = a -> Probability
 
+data Target a = T (Density a)
+
 class HasDensity d a where
     density :: d a -> Density a
-
-data Target a = T (Density a)
+    -- makeTarget :: d a -> Target a
 
 instance HasDensity Target a where
     density (T d) = d
+    -- makeTarget = id
 
 type Sample a = Rand -> IO a
 data Proposal a = P (Density a) (Sample a)
 
 instance HasDensity Proposal a where
     density (P d _) = d
+    -- makeTarget (P d _) = T d
 
 sampleFrom :: Proposal a -> Sample a
 sampleFrom (P _ s) = s
@@ -62,14 +65,14 @@ fromProposal = T . density
 uniform :: (MWC.Variate a, Real a) => [a] -> [a] -> Proposal [a]
 uniform a b
     | b < a = uniform b a
-    | a < b = makeUniform a b
+    | a <= b = makeUniform a b
     | otherwise = error "Wrong parameters for Uniform distribution"
 
 unif1D :: Real a => a -> a -> a -> Probability
 unif1D a b x
     | x < a = 0
     | x > b = 0
-    | otherwise = 1 / realToFrac (b - a)
+    | otherwise = 1 / (max 1 $ realToFrac (b - a))
 
 makeUniform :: (MWC.Variate a, Real a) => [a] -> [a] -> Proposal [a]
 makeUniform a b = 
@@ -115,7 +118,8 @@ normalSF m cov n g = do
 
 type MixRatio = Double
 
-targetMix :: MixRatio -> Target a -> Target a -> Target a
+targetMix :: (HasDensity t a, HasDensity u a) => 
+             MixRatio -> t a -> u a -> Target a
 targetMix nu t u = 
     let mixD x = nu*(density t x) + (1-nu)*(density u x)
     in T mixD
@@ -176,18 +180,9 @@ block begin end
 
 updateNth :: Int -> ([a] -> Proposal [a]) -> [a] -> Proposal [a]
 updateNth n p x = 
-    let den y = flip density y $ p (block n n y)
+    let den y = flip density (block n n y) $ p (block n n x)
         s g = nthM n (unlift (\xn -> sampleFrom (p xn) g)) x
     in P den s
-
--- updateBlock :: Int -> [a] -> Proposal [a] -> Proposal [a]
--- updateBlock n x (P d s) = 
---     let s' g = do x' <- s g 
---                   return $ (nth n) (swapWith $ x' !! (n-1)) x
---     in P d s'
-
--- updateBlock :: (a -> a) -> Proposal a -> Proposal a
--- updateBlock f (P d s) = let s' g = s g >>= return . f in P d s'
 
 -- ex = (second.first.second) not (1,((3,True),2))
 -- eg = (cdr.cdr.car) not [False,False,True,False]
@@ -195,3 +190,4 @@ updateNth n p x =
 -- exampl = (nth 4) (swapWith 4) [1,2,3,5,5]
 -- diagex = diag [1,2,3,4]
 -- cdrex = cdr (\ls -> map ((+)10) ls) [1,2,3,4,5]
+

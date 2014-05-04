@@ -42,8 +42,8 @@ metropolisHastings t c_p =
     in mhStep
 
 -- Visualizes only the first dimension
-vizMH :: PrintF [Double] Double
-vizMH = map head
+vizMH :: PrintF [Double] [Double]
+vizMH = id -- map head
 
 -- Simulated Annealing --
 
@@ -52,7 +52,7 @@ type CoolingSchedule = Temp -> Temp
 type StateSA a = (a, Temp, CoolingSchedule)
 
 simulatedAnnealing :: Kernel (StateSA [a]) [a]
-simulatedAnnealing t c_p = 
+simulatedAnnealing t c_p  = 
     let saStep g (xi,temp,cool) = do
           u <- sampleFrom (uniform [0] [1]) g
           xstar <- sampleFrom (c_p xi) g
@@ -70,7 +70,7 @@ myFilter :: [[Double]] -> [[Double]]
 myFilter = filter (\x -> x < (repeat 15) && x > (repeat $ -5))
 
 -- Visualizes only the first dimension
-vizSA :: PrintF (StateSA [Double]) Double
+vizSA :: PrintF (StateSA [Double]) [Double]
 vizSA = vizMH . myFilter . map tripleFirst
 
 -- Kernel Mixtures --
@@ -90,3 +90,4 @@ cycleKernel kernel t cps =
       combine comb step = (\iox -> iox >>= comb) . step
       cycleStep g = foldl combine return (steps g)
   in cycleStep
+
