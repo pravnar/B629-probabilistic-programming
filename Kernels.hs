@@ -75,11 +75,11 @@ vizSA = vizMH . myFilter . map tripleFirst
 
 -- Kernel Mixtures --
 
-mixSteps :: MixRatio -> Step x -> Step x -> Step x
-mixSteps nu kstep lstep = 
+mixSteps :: [Step x] -> [Probability] -> Step x
+mixSteps steps probs = 
     let mixStep g x = do
-          u <- sampleFrom (uniform [0] [1]) g
-          if head u < nu then kstep g x else lstep g x
+          (step,_) <- sampleFrom (categorical steps probs) g
+          step g x
     in mixStep
 
 -- Kernel Cycles --

@@ -21,8 +21,8 @@ mhTest :: IO ()
 mhTest = do
   g <- MWC.createSystemRandom
   let a = batchPrint vizMH 50
-      s = skip 100 a
-  walk exampleMH [0] (10^6) g s
+      e = every 100 a
+  walk exampleMH [0] (10^6) g e
 
 exampleSA :: Step (StateSA [Double])
 exampleSA = simulatedAnnealing exampleTarget gaussianProposal
@@ -33,13 +33,13 @@ saTest = do
   let coolSch = (*) (1 - 1e-3) :: Temp -> Temp
       x0 = ([0], 1, coolSch)
       a = batchPrint vizSA 100
-      s = skip 100 a
-  walk exampleSA x0 (10^5) g s
+      e = every 100 a
+  walk exampleSA x0 (10^5) g e
 
 gMix :: Target [Double]
 gMix = let g1 = normal [0,0] (diag [1,1])
            g2 = normal [5,5] (diag [2,2])
-       in targetMix 0.3 g1 g2
+       in targetMix [g1, g2] [0.3, 0.7] 
 
 prop1 :: [Double] -> Proposal [Double]
 prop1 x = updateNth 1 (\y -> normal y [[1]]) x
@@ -49,13 +49,12 @@ prop2 x = updateNth 2 (\y -> normal y [[1]]) x
 
 mhMix = let mh1 = metropolisHastings gMix prop1
             mh2 = metropolisHastings gMix prop2
-        in mixSteps 0.7 mh1 mh2
+        in mixSteps [mh1, mh2] [0.7, 0.3] 
 
 mixTest :: IO ()
 mixTest = do
   g <- MWC.createSystemRandom
   let a = batchPrint vizMH 50
-      s = skip 100 a
   walk mhMix [0,0] (10^6) g a
 
 mhCycle :: Step [Double]
@@ -65,22 +64,15 @@ cycleTest :: IO ()
 cycleTest = do
   g <- MWC.createSystemRandom
   let a = batchPrint vizMH 50
-      s = skip 100 a
   walk mhCycle [0,0] (10^6) g a
 
-fourD :: Target [Double]
-fourD = fromProposal $ normal [0,1,4,7] (diag [2,2,2,2])
-
-fp1 :: [Double] -> Proposal [Double]
-fp1 = updateBlock 1 2 (\y -> normal y (diag [1,1]))
-
-fp2 :: [Double] -> Proposal [Double]
-fp2 = updateBlock 3 3 (\y -> normal y [[1]])
-
 blockMH :: Step [Double]
-blockMH = let mh1 = metropolisHastings fourD fp1
-              mh2 = metropolisHastings fourD fp2
-          in mixSteps 0.5 mh1 mh2
+blockMH = let target = fromProposal $ normal [0,1,4,7] (diag [2,2,2,2])
+              mh4D = metropolisHastings target
+              mh1 = mh4D $ updateBlock 1 2 (\y -> normal y (diag [1,1]))
+              mh2 = mh4D $ updateBlock 3 3 (\y -> normal y [[1]])
+              mh3 = mh4D $ updateNth 4 (\y -> normal y [[1]])
+          in mixSteps [mh1, mh2, mh3] [0.5, 0.4, 0.7] 
 
 blockTest :: IO ()
 blockTest = do

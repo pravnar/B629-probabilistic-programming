@@ -1,7 +1,6 @@
 module Actions ( Action (..)
                , execute
-               , skip
-               , endSkip
+               , every
                , Batch
                , BatchAct
                , BatchAction
@@ -20,17 +19,14 @@ data Action x m a b = Action (Act x m a) (a -> m b) a
 execute :: Monad m => Action x m a b -> x -> m (Action x m a b)
 execute (Action act fin a) x = liftM (Action act fin) (act x a)
 
-skip :: Monad m => Int -> Action x m a b -> Action x m (a,Int) b
-skip n (Action act fin a) = 
+every :: Monad m => Int -> Action x m a b -> Action x m (a,Int) b
+every n (Action act fin a) = 
   let skip_act x (b,i) = if i == (n-1)
                          then do b' <- act x b
                                  return (b',0)
                          else return (b,i+1)
       skip_fin = fin . fst
   in Action skip_act skip_fin (a,0)
-
-endSkip :: Monad m => (a,Int) -> m a
-endSkip = return . fst
 
 -- Batch actions --  
 

@@ -12,7 +12,6 @@ module Distributions ( Rand
                      , diag
                      , normal
                      , categorical
-                     , MixRatio
                      , targetMix
                      , proposalMix
                      , first
@@ -34,7 +33,6 @@ import qualified Data.Packed.Matrix as M
 import qualified Numeric.LinearAlgebra.Algorithms as LA
 import qualified Numeric.Container as C
 import qualified Data.Vector as V
-import Data.Maybe
 
 type Rand  = MWC.Gen (PrimState IO)
 type Probability = Double
@@ -117,41 +115,50 @@ normalSF m cov n g = do
 
 -- Categorical --
 
-normalize :: V.Vector Probability -> V.Vector Probability
-normalize probs = let s = V.sum probs in V.map (flip (/) s) probs
+categorical :: [a] -> [Probability] -> Proposal (a,Int)
+categorical cs ps = let (cats,probs) = vectorCats cs ps in makeCategorical cats probs
 
-categorical :: Eq a => [a] -> [Probability] -> Proposal a
-categorical cs ps = 
-    let (cats,probs) = (V.fromList cs, normalize $ V.fromList ps)
-        den cat = (V.!) probs $ fromJust $ V.elemIndex cat cats
-    in P den (catSF cats probs) 
+-- The index is stored (a,Int) to allow categorical dists over objects outside the Eq class
+-- Assumption: 
+-- 1. length of probability list >= length of category list - 1
+-- 2. the order in each list "matters", i.e, first prob maps to first category, second to second, and so on
+makeCategorical :: V.Vector a -> V.Vector Probability -> Proposal (a,Int)
+makeCategorical cats probs = let den (_,i) = probs V.! i
+                             in P den (catSF cats probs)
 
-catSF :: V.Vector a -> V.Vector Probability -> Sample a
+catSF :: V.Vector a -> V.Vector Probability -> Sample (a,Int)
 catSF cats probs g = do 
   u <- sampleFrom (uniform [0] [1]) g
   let cdfs = V.prescanl (+) 0 probs
       i = V.maxIndex $ V.filter ((>=) $ head u) cdfs
-  return $ cats V.! i
+  return $ (cats V.! i, i)
+
+normalize :: V.Vector Probability -> V.Vector Probability
+normalize probs = let s = V.sum probs in V.map (flip (/) s) probs
+
+vectorCats :: [a] -> [Probability] -> (V.Vector a, V.Vector Probability)
+vectorCats cs ps = (V.fromList cs, normalize $ V.fromList ps)
 
 -- Target Mixtures --
 
-type MixRatio = Double
+mixD :: HasDensity t a => V.Vector (t a) -> V.Vector Probability -> Density a
+mixD cats probs x = V.foldl1 (+) $ V.imap (\i t -> (probs V.! i)*(density t x)) cats
 
-targetMix :: (HasDensity t a, HasDensity u a) => 
-             MixRatio -> t a -> u a -> Target a
-targetMix nu t u = 
-    let mixD x = nu*(density t x) + (1-nu)*(density u x)
-    in T mixD
-
+targetMix :: HasDensity t a => [t a] -> [Probability] -> Target a
+targetMix ts ps =
+    let (cats,probs) = vectorCats ts ps
+    in T (mixD cats probs)
+        
 -- Proposal Mixtures --
 
-proposalMix :: MixRatio -> Proposal a -> Proposal a -> Proposal a
-proposalMix nu p q = 
-    let mixD x = nu*(density p x) + (1-nu)*(density q x)
+proposalMix :: [Proposal a] -> [Probability] -> Proposal a
+proposalMix props ps = 
+    let (cats,probs) = vectorCats props ps
+        propCat = makeCategorical cats probs
         mixSF g = do
-          u <- sampleFrom (uniform [0] [1]) g
-          if head u < nu then sampleFrom p g else sampleFrom q g
-    in P mixD mixSF
+          (prop,_) <- sampleFrom propCat g
+          sampleFrom prop g
+    in P (mixD cats probs) mixSF
 
 -- Semantic editor combinators --
 
